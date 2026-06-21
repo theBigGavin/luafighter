@@ -172,7 +172,7 @@ local ATTRACT_END_FRAME = 3600
 local PRESS_CYCLE = 120
 local PRESS_DURATION = 30
 local INJECTION_TIMEOUT = 2100
-local NEOGEO_ENTRY_DURATION = 1800  -- Neo Geo 进场按键持续帧数
+local NEOGEO_ENTRY_DURATION = 3600  -- Neo Geo 进场按键持续帧数
 
 -- ============ 辅助函数 ============
 
@@ -268,7 +268,7 @@ end
 
 local function handleAttract()
   if IS_NEOGEO then
-    -- Neo Geo：启动后立刻开始脉冲式按键进场
+    -- Neo Geo：启动后立刻开始脉冲式按键进场，目标是 1P vs 2P
     if frameCount < STARTUP_DELAY then return end
     local elapsed = frameCount - STARTUP_DELAY
     if elapsed >= NEOGEO_ENTRY_DURATION then
@@ -276,15 +276,23 @@ local function handleAttract()
     end
     if not started then
       started = true
-      debugLog("[Automation] Neo Geo 进场序列启动")
+      debugLog("[Automation] Neo Geo 进场序列启动（1P vs 2P）")
     end
-    local cycle = elapsed % 30
-    if cycle < 10 then
+    local cycle = elapsed % 120
+    if elapsed >= 120 and elapsed < 720 and cycle == 0 then
+      -- 为双方投币（等待标题画面稳定后少量投币，避免 CREDITS 暴涨）
       inputCtrl:insertCoin(1)
-    elseif cycle >= 10 and cycle < 15 then
+      inputCtrl:insertCoin(2)
+    elseif cycle >= 25 and cycle < 35 then
+      -- P1 开始
       inputCtrl:pressStart(1)
-    elseif cycle >= 15 and cycle < 18 then
-      inputCtrl:press({"BUTTON1"}, 1, 3)
+    elseif cycle >= 45 and cycle < 55 then
+      -- P2 开始（加入对战）
+      inputCtrl:pressStart(2)
+    elseif cycle >= 65 and cycle < 75 then
+      -- 确认模式/角色选择（双方同时按 A）
+      inputCtrl:press({"BUTTON1"}, 1, 4)
+      inputCtrl:press({"BUTTON1"}, 2, 4)
     end
     return
   end

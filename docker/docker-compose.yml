@@ -27,7 +27,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.base
     container_name: luafighter-manager
-    command: ["bash", "-c", "mkdir -p /tmp/pulse && Xvfb :99 -ac -screen 0 640x480x24 & PULSE_RUNTIME_PATH=/tmp/pulse pulseaudio --start --exit-idle-time=-1 && PULSE_RUNTIME_PATH=/tmp/pulse pactl load-module module-null-sink sink_name=luafighter sink_properties=device.description=LuaFighter && node packages/match-manager/dist/index.js"]
+    command: ["bash", "-c", "mkdir -p /tmp/pulse && rm -f /tmp/pulse/pid /tmp/pulse/native && Xvfb :99 -ac -screen 0 640x480x24 & PULSE_RUNTIME_PATH=/tmp/pulse pulseaudio --start --exit-idle-time=-1 && sleep 1 && PULSE_RUNTIME_PATH=/tmp/pulse pactl load-module module-null-sink sink_name=luafighter sink_properties=device.description=LuaFighter && node packages/match-manager/dist/index.js"]
     ports:
       - "9003:9003"   # HTTP API
       - "9004:9004"   # Socket.IO

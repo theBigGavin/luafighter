@@ -123,8 +123,8 @@ local function buildNeoGeoFieldMap(romConfig)
   add("P2", ports.p2)
   map["P1_START"] = { portTag = ports.start, fieldName = "1 Player Start", mask = 1 }
   map["P2_START"] = { portTag = ports.start, fieldName = "2 Players Start", mask = 4 }
-  map["P1_COIN"] = { portTag = ports.coin, fieldName = "Coin 1", mask = 1 }
-  map["P2_COIN"] = { portTag = ports.coin, fieldName = "Coin 2", mask = 1 }
+  map["P1_COIN"] = { portTag = ports.coin, fieldName = "Coin 1", mask = masks.COIN or 1 }
+  map["P2_COIN"] = { portTag = ports.coin, fieldName = "Coin 2", mask = masks.COIN2 or 2 }
   NEOGEO_FIELD_MAP = map
   return map
 end

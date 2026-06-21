@@ -20,10 +20,10 @@
   "attackDistance": 12000,
   "teamSize": 3,
   "p1InputMap": {
-    "UP": "P1_UP",
-    "DOWN": "P1_DOWN",
-    "LEFT": "P1_LEFT",
-    "RIGHT": "P1_RIGHT",
+    "UP": "P1_Up",
+    "DOWN": "P1_Down",
+    "LEFT": "P1_Left",
+    "RIGHT": "P1_Right",
     "BUTTON1": "P1_A",
     "BUTTON2": "P1_B",
     "BUTTON3": "P1_C",
@@ -32,10 +32,10 @@
     "COIN": "P1_COIN"
   },
   "p2InputMap": {
-    "UP": "P2_UP",
-    "DOWN": "P2_DOWN",
-    "LEFT": "P2_LEFT",
-    "RIGHT": "P2_RIGHT",
+    "UP": "P2_Up",
+    "DOWN": "P2_Down",
+    "LEFT": "P2_Left",
+    "RIGHT": "P2_Right",
     "BUTTON1": "P2_A",
     "BUTTON2": "P2_B",
     "BUTTON3": "P2_C",
@@ -50,16 +50,17 @@
     "p2": ":edge:joy:JOY2"
   },
   "neogeoFieldMasks": {
-    "UP": 1,
-    "DOWN": 2,
-    "LEFT": 4,
-    "RIGHT": 8,
+    "Up": 1,
+    "Down": 2,
+    "Left": 4,
+    "Right": 8,
     "A": 16,
     "B": 32,
     "C": 64,
     "D": 128,
     "START": 1,
-    "COIN": 1
+    "COIN": 1,
+    "COIN2": 2
   },
   "characters": [
     "Kyo", "Benimaru", "Daimon", "Terry", "Andy", "Joe",
