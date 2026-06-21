@@ -503,8 +503,8 @@ html, body {
 }
 
 .trend-panel {
-  flex-shrink: 0;
-  height: 160px;
+  flex: 1;
+  min-height: 160px;
   display: flex;
   flex-direction: column;
   padding: 12px;

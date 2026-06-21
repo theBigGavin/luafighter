@@ -5,9 +5,7 @@ import StrengthChart from '../components/StrengthChart';
 import ScoreBoard from '../components/ScoreBoard';
 import VideoPlayer from '../components/VideoPlayer';
 import MarketPanel from '../components/MarketPanel';
-import BettingPanel from '../components/BettingPanel';
 import ConnectionStatus from '../components/ConnectionStatus';
-import { useBetting } from '../hooks/useBetting';
 
 interface GameState {
   roomId: string;
@@ -48,8 +46,6 @@ export default function WatchRoom() {
   const [webrtcUrl, setWebrtcUrl] = useState<string>('');
   const [hlsUrl, setHlsUrl] = useState<string>('');
 
-  const { balance, records, placeBet, settleRound, settleGame } = useBetting(10000);
-
   const appendStrength = useCallback((strengthIndex: number) => {
     setStrengthHistory((prev) => {
       const now = Date.now();
@@ -88,14 +84,6 @@ export default function WatchRoom() {
       }
     });
 
-    s.on('roundEnd', (data: { winner: 1 | 2; round: number }) => {
-      settleRound({ winner: data.winner, round: data.round });
-    });
-
-    s.on('gameEnd', (data: { winner: 1 | 2; p1Wins: number; p2Wins: number }) => {
-      settleGame({ winner: data.winner, p1Wins: data.p1Wins, p2Wins: data.p2Wins });
-    });
-
     s.on('joined', (data: { roomId: string; state: GameState }) => {
       setGameState(data.state);
       if (data.state.marketData) {
@@ -112,7 +100,7 @@ export default function WatchRoom() {
       s.disconnect();
       socketRef.current = null;
     };
-  }, [roomId, appendStrength, settleRound, settleGame]);
+  }, [roomId, appendStrength]);
 
   // 获取播放地址
   useEffect(() => {
@@ -125,15 +113,6 @@ export default function WatchRoom() {
       })
       .catch(console.error);
   }, [roomId]);
-
-  const handlePlaceBet = useCallback(
-    (side: 'p1' | 'p2', amount: number) => {
-      const round = gameState?.round?.round || 1;
-      const strength = gameState?.marketData?.strengthIndex || 0;
-      return placeBet(side, amount, strength, round);
-    },
-    [gameState, placeBet]
-  );
 
   if (!roomId) return <div>房间 ID 无效</div>;
 
@@ -158,11 +137,6 @@ export default function WatchRoom() {
           </div>
           <ConnectionStatus connected={connected} phase={gameState?.phase || 'unknown'} />
         </div>
-
-        <div className="panel trend-panel">
-          <h3 className="panel-title">多空趋势</h3>
-          <StrengthChart data={strengthHistory} />
-        </div>
       </div>
 
       <div className="sidebar">
@@ -177,14 +151,10 @@ export default function WatchRoom() {
           symbol={gameState?.marketData?.symbol || 'IF2306'}
         />
 
-        <BettingPanel
-          balance={balance}
-          records={records}
-          strengthIndex={gameState?.marketData?.strengthIndex || 0}
-          currentRound={gameState?.round?.round || 1}
-          phase={gameState?.phase || 'unknown'}
-          onPlaceBet={handlePlaceBet}
-        />
+        <div className="panel trend-panel">
+          <h3 className="panel-title">多空趋势</h3>
+          <StrengthChart data={strengthHistory} />
+        </div>
       </div>
     </div>
   );
