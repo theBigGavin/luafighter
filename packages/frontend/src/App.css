@@ -1,3 +1,11 @@
+/* 全局重置，消除浏览器默认边距 */
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: #0f1115;
+}
+
 .app {
   display: flex;
   flex-direction: column;
