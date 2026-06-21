@@ -48,7 +48,7 @@ temp/
 # MediaMTX 录制
 recordings/
 *.mp4
-*.ts
+recordings/*.ts
 
 # 测试覆盖
 coverage/
