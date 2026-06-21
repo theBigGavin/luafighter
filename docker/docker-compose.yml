@@ -36,8 +36,9 @@ services:
       - ROMS_DIR=/app/roms
       - LUA_SCRIPT_PATH=/app/lua-scripts/drivers/automation.lua
       - DISPLAY=:99
+      - MARKET_WS_HOST=market-data
     volumes:
-      - ./roms:/app/roms:ro
+      - ../roms:/app/roms:ro
       - ../lua-scripts:/app/lua-scripts:ro
       - ../plugins:/app/plugins:ro
     depends_on:

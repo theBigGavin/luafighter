@@ -597,9 +597,14 @@ emu.register_periodic(function()
   if frameCount % 300 == 0 then
     debugLog(string.format("[Automation] F%d Phase=%s state=0x%02X P1HP=%d P2HP=%d P1X=%d P2X=%d",
       frameCount, currentPhase, readU8(romConfig.stateAddress) or 0, p1Health or 0, p2Health or 0, p1X or 0, p2X or 0))
+    -- 向 match-manager 发送心跳，避免被判定为无响应
+    print("[LuaFighter] heartbeat")
   end
 end)
 
 debugLog("LuaFighter 自动化脚本已加载")
 debugLog(string.format("ROM=%s platform=%s Room=%s 端口=%d 时序: wait=%dfr inject_start=%dfr",
   ROM_NAME, IS_NEOGEO and "neogeo" or "cps1", ROOM_ID, WS_PORT, STARTUP_DELAY, ATTRACT_END_FRAME))
+
+-- 向 match-manager 报告心跳（stdout 会被 MAME 子进程捕获）
+print("[LuaFighter] automation ready")

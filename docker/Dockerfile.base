@@ -1,27 +1,22 @@
 # LuaFighter 基础镜像
-# 包含 Node.js、MAME、FFmpeg、Xvfb
+# 基于预装 MAME 的容器（linuxserver/mame，版本接近 0.288）
+# 再安装 Node.js、FFmpeg、Xvfb
 
-FROM ubuntu:22.04
+FROM lscr.io/linuxserver/mame:latest
+
+# 覆盖 LSIO 的 s6 init，直接跑我们的服务
+ENTRYPOINT []
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV NODE_VERSION=18.18.0
+ENV PATH="/usr/games:${PATH}"
 
-# 安装系统依赖
+# 安装系统依赖（linuxserver/mame 镜像已自带 MAME 运行库，这里只补 Node/推流/虚拟显示）
 RUN apt-get update && apt-get install -y \
     curl \
-    wget \
     xvfb \
     ffmpeg \
-    libsdl2-2.0-0 \
-    libfreetype6 \
-    libflac8 \
-    libjpeg8 \
-    libpng16-16 \
-    libsqlite3-0 \
-    libvorbisfile3 \
-    libxinerama1 \
-    libxkbcommon0 \
-    mesa-utils \
+    ca-certificates \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Node.js
@@ -29,11 +24,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 MAME（从官方 PPA 或源码构建）
-RUN apt-get update && apt-get install -y \
-    mame \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -s /usr/games/mame /usr/local/bin/mame
+# 确保 mame 在 PATH 中
+RUN ln -sf /usr/games/mame /usr/local/bin/mame
 
 # 创建工作目录
 WORKDIR /app
