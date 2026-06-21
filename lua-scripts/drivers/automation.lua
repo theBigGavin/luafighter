@@ -278,19 +278,17 @@ local function handleAttract()
       started = true
       debugLog("[Automation] Neo Geo 进场序列启动（1P vs 2P）")
     end
-    local cycle = elapsed % 120
+    local cycle = elapsed % 300
     if elapsed >= 120 and elapsed < 720 and cycle == 0 then
       -- 为双方投币（等待标题画面稳定后少量投币，避免 CREDITS 暴涨）
       inputCtrl:insertCoin(1)
       inputCtrl:insertCoin(2)
-    elseif cycle >= 25 and cycle < 35 then
-      -- P1 开始
+    elseif cycle >= 40 and cycle < 70 then
+      -- 双方同时按 Start 进入 1P vs 2P 对战模式
       inputCtrl:pressStart(1)
-    elseif cycle >= 45 and cycle < 55 then
-      -- P2 开始（加入对战）
       inputCtrl:pressStart(2)
-    elseif cycle >= 65 and cycle < 75 then
-      -- 确认模式/角色选择（双方同时按 A）
+    elseif cycle >= 80 and cycle < 100 then
+      -- 确认角色选择（双方同时按 A）
       inputCtrl:press({"BUTTON1"}, 1, 4)
       inputCtrl:press({"BUTTON1"}, 2, 4)
     end
