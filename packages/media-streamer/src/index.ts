@@ -29,6 +29,7 @@ app.post('/api/streams/:roomId/start', async (req: Request, res: Response) => {
       roomId,
       rtmpUrl,
       webrtcUrl: streamManager.getWebRTCUrl(roomId),
+      hlsUrl: streamManager.getHlsUrl(roomId),
     });
   } catch (err) {
     res.status(500).json({ error: '启动推流失败', detail: (err as Error).message });

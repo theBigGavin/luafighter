@@ -27,7 +27,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.base
     container_name: luafighter-manager
-    command: ["bash", "-c", "Xvfb :99 -screen 0 1024x768x24 & node packages/match-manager/dist/index.js"]
+    command: ["bash", "-c", "Xvfb :99 -ac -screen 0 640x480x24 & node packages/match-manager/dist/index.js"]
     ports:
       - "9003:9003"   # HTTP API
       - "9004:9004"   # Socket.IO
@@ -37,13 +37,16 @@ services:
       - LUA_SCRIPT_PATH=/app/lua-scripts/drivers/automation.lua
       - DISPLAY=:99
       - MARKET_WS_HOST=market-data
+      - MEDIA_STREAMER_HOST=media-streamer
     volumes:
       - ../roms:/app/roms:ro
       - ../lua-scripts:/app/lua-scripts:ro
       - ../plugins:/app/plugins:ro
+      - x11-sock:/tmp/.X11-unix
     depends_on:
       - market-data
       - mediamtx
+      - media-streamer
     networks:
       - luafighter-net
     privileged: true  # 需要运行 Xvfb 和 MAME
@@ -60,20 +63,25 @@ services:
     environment:
       - NODE_ENV=production
       - MEDIA_MTX_URL=rtmp://mediamtx:1935/live
+      - DISPLAY=:99
+    volumes:
+      - x11-sock:/tmp/.X11-unix
     depends_on:
       - mediamtx
     networks:
       - luafighter-net
 
-  # MediaMTX 网关 (RTMP -> WebRTC)
+  # MediaMTX 网关 (RTMP -> WebRTC/HLS)
   mediamtx:
     image: bluenviron/mediamtx:latest
     container_name: luafighter-mediamtx
     ports:
-      - "1935:1935"    # RTMP
-      - "8888:8888"    # HLS
-      - "8889:8889"    # WebRTC
-      - "9997:9997"    # API
+      - "1935:1935"        # RTMP
+      - "8888:8888"        # HLS
+      - "8889:8889"        # WebRTC 信令
+      - "8189:8189/tcp"    # WebRTC ICE TCP
+      - "8189:8189/udp"    # WebRTC ICE UDP
+      - "9997:9997"        # API
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
     command: ["/mediamtx.yml"]
@@ -97,3 +105,7 @@ services:
 networks:
   luafighter-net:
     driver: bridge
+
+volumes:
+  x11-sock:
+    driver: local

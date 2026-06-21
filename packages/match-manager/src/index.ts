@@ -70,6 +70,8 @@ async function stopRoom(id: string): Promise<void> {
     marketClients.delete(id);
   }
 
+  await stopStream(id);
+
   const room = rooms.get(id);
   if (room) {
     await room.stop();
@@ -78,6 +80,31 @@ async function stopRoom(id: string): Promise<void> {
 
   await mamePool.destroyInstance(id);
   roomConfigs.delete(id);
+}
+
+// 通知媒体推流服务启动/停止 FFmpeg
+async function startStream(roomId: string, display: string): Promise<void> {
+  const mediaHost = process.env.MEDIA_STREAMER_HOST || 'media-streamer';
+  const res = await fetch(`http://${mediaHost}:9005/api/streams/${roomId}/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`media-streamer ${res.status}: ${text}`);
+  }
+}
+
+async function stopStream(roomId: string): Promise<void> {
+  const mediaHost = process.env.MEDIA_STREAMER_HOST || 'media-streamer';
+  try {
+    await fetch(`http://${mediaHost}:9005/api/streams/${roomId}/stop`, {
+      method: 'POST',
+    });
+  } catch (err) {
+    console.error(`[Manager] 停止房间 ${roomId} 视频流失败:`, err);
+  }
 }
 
 // 根据配置启动一个房间
@@ -118,7 +145,12 @@ async function createRoomFromConfig(config: RoomConfig): Promise<{ success: bool
   marketClient.connect();
   marketClients.set(id, marketClient);
 
-  // 4. 事件转发到前端
+  // 4. 通知媒体推流服务启动 FFmpeg 捕获
+  startStream(id, config.display).catch((err) => {
+    console.error(`[Manager] 启动房间 ${id} 视频流失败:`, err);
+  });
+
+  // 5. 事件转发到前端
   room.on('ready', () => {
     io.to(id).emit('ready', { roomId: id, rom: config.rom });
   });

@@ -42,6 +42,7 @@ export default function WatchRoom() {
   const [strengthHistory, setStrengthHistory] = useState<{ time: number; value: number }[]>([]);
   const [events, setEvents] = useState<{ time: string; message: string }[]>([]);
   const [webrtcUrl, setWebrtcUrl] = useState<string>('');
+  const [hlsUrl, setHlsUrl] = useState<string>('');
 
   const { balance, records, placeBet, settleRound, settleGame } = useBetting(10000);
 
@@ -136,6 +137,9 @@ export default function WatchRoom() {
         if (data.webrtcUrl) {
           setWebrtcUrl(data.webrtcUrl);
         }
+        if (data.hlsUrl) {
+          setHlsUrl(data.hlsUrl);
+        }
       })
       .catch(console.error);
   }, [roomId]);
@@ -154,7 +158,7 @@ export default function WatchRoom() {
   return (
     <div className="watch-room">
       <div className="video-section">
-        <VideoPlayer webrtcUrl={webrtcUrl} roomId={roomId} />
+        <VideoPlayer webrtcUrl={webrtcUrl} hlsUrl={hlsUrl} roomId={roomId} />
 
         <ScoreBoard
           p1Hp={gameState?.round?.p1.health || 0}

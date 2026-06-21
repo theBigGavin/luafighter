@@ -1,5 +1,8 @@
 logLevel: info
 
+api: yes
+apiAddress: :9997
+
 rtmp: yes
 rtmpAddress: :1935
 

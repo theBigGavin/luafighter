@@ -146,8 +146,8 @@ export class MameProcessManager {
     const args: string[] = [
       this.config.rom,
       '-rompath', path.resolve(this.config.romsDir),
-      '-window',
       '-resolution', '640x480',
+      '-nokeepaspect',
       '-noreadconfig',
       '-skip_gameinfo',
       '-autoboot_script', this.config.luaScriptPath,

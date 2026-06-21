@@ -1,108 +1,107 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
+import Hls from 'hls.js';
 
 interface VideoPlayerProps {
-  webrtcUrl: string;
+  webrtcUrl?: string;
+  hlsUrl?: string;
   roomId: string;
 }
 
 /**
- * WebRTC 视频播放器
- * 使用 WHEP 协议从 MediaMTX 接收视频流
+ * 视频播放器
+ * 当前使用 HLS（通过 hls.js）播放，兼容 Docker / NAT 环境。
+ * WebRTC(WHEP) 在低延迟场景更优，但在当前 Docker Desktop 网络下 ICE 穿透困难，
+ * 因此保留 webrtcUrl 接口但默认走 HLS。
  */
 
-export default function VideoPlayer({ webrtcUrl, roomId }: VideoPlayerProps) {
+export default function VideoPlayer({ hlsUrl, roomId }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const [status, setStatus] = useState<'waiting' | 'playing' | 'error'>('waiting');
 
   useEffect(() => {
-    if (!webrtcUrl || !videoRef.current) return;
-
     const video = videoRef.current;
+    if (!video || !hlsUrl) return;
 
-    // 使用 WHEP 协议（WebRTC-HTTP Egress Protocol）
-    // 这是 MediaMTX 支持的 WebRTC 播放方式
-    const whepUrl = `${webrtcUrl}/whep`;
+    setStatus('waiting');
 
-    // 简单的 WHIP/WHEP 客户端实现
-    let pc: RTCPeerConnection | null = null;
+    // 清理上一次的状态
+    video.srcObject = null;
+    video.src = '';
+    video.load();
 
-    async function startPlayback() {
-      try {
-        pc = new RTCPeerConnection({
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-        });
+    let hls: Hls | null = null;
 
-        pc.addTransceiver('video', { direction: 'recvonly' });
-        pc.addTransceiver('audio', { direction: 'recvonly' });
+    if (Hls.isSupported()) {
+      // 优先使用 hls.js，避免 Chrome 报告 canPlayType('maybe') 却无法解码
+      hls = new Hls({
+        enableWorker: false,
+        lowLatencyMode: true,
+        maxBufferLength: 4,
+        maxMaxBufferLength: 8,
+      });
+      hlsRef.current = hls;
 
-        pc.ontrack = (event) => {
-          if (event.track.kind === 'video' && video.srcObject !== event.streams[0]) {
-            video.srcObject = event.streams[0];
-            video.play().catch(() => {});
-          }
-        };
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(video);
 
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setStatus('playing');
+        video.play().catch(() => {});
+      });
 
-        // 等待 ICE 收集完成
-        await new Promise<void>((resolve) => {
-          const checkState = () => {
-            if (pc?.iceGatheringState === 'complete') {
-              resolve();
-            } else {
-              setTimeout(checkState, 100);
-            }
-          };
-          checkState();
-        });
-
-        // 发送 offer 到 WHEP 端点
-        const response = await fetch(whepUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/sdp',
-          },
-          body: pc.localDescription?.sdp,
-        });
-
-        if (!response.ok) {
-          throw new Error(`WHEP 请求失败: ${response.status}`);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        console.error('[VideoPlayer] HLS error:', data);
+        if (data.fatal) {
+          setStatus('error');
         }
-
-        const answerSdp = await response.text();
-        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-
-      } catch (err) {
-        console.error('[VideoPlayer] WebRTC 播放失败:', err);
-      }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari / iOS 原生支持 HLS
+      video.src = hlsUrl;
+      video.play().catch(() => {});
+      setStatus('playing');
+    } else {
+      setStatus('error');
     }
 
-    startPlayback();
-
     return () => {
-      pc?.close();
-      pc = null;
-      video.srcObject = null;
+      hls?.destroy();
+      hlsRef.current = null;
     };
-  }, [webrtcUrl]);
+  }, [hlsUrl]);
+
+  const showPlaceholder = !hlsUrl;
 
   return (
     <div className="video-container">
-      {webrtcUrl ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          controls={false}
-          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-        />
-      ) : (
+      {showPlaceholder ? (
         <div className="video-placeholder">
           <div className="icon">📺</div>
           <div>等待视频流...</div>
           <div style={{ fontSize: '12px', opacity: 0.6 }}>房间: {roomId}</div>
         </div>
+      ) : (
+        <>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            controls={false}
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          />
+          {status === 'waiting' && (
+            <div className="video-overlay">
+              <div>正在连接视频流...</div>
+            </div>
+          )}
+          {status === 'error' && (
+            <div className="video-overlay error">
+              <div>视频流播放失败</div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

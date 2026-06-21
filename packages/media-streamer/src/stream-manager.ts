@@ -157,8 +157,8 @@ export class StreamManager {
   private streamers: Map<string, FFmpegStreamer> = new Map();
   private mediaMtxUrl: string;
 
-  constructor(mediaMtxUrl: string = 'rtmp://localhost:1935/live') {
-    this.mediaMtxUrl = mediaMtxUrl;
+  constructor(mediaMtxUrl?: string) {
+    this.mediaMtxUrl = mediaMtxUrl || process.env.MEDIA_MTX_URL || 'rtmp://localhost:1935/live';
   }
 
   async startStream(roomId: string, display: string): Promise<string> {
@@ -202,15 +202,22 @@ export class StreamManager {
   }
 
   getWebRTCUrl(roomId: string): string {
-    // MediaMTX 的 WebRTC 播放地址
+    // MediaMTX 的 WebRTC 播放地址（通过 Nginx /webrtc 代理访问）
     const streamKey = `room_${roomId}`;
-    return `http://localhost:8889/live/${streamKey}`;
+    return `/webrtc/live/${streamKey}`;
+  }
+
+  getHlsUrl(roomId: string): string {
+    // MediaMTX 的 HLS 播放地址（通过 Nginx /hls 代理访问）
+    const streamKey = `room_${roomId}`;
+    return `/hls/live/${streamKey}/index.m3u8`;
   }
 
   getStreamInfo(roomId: string): {
     streaming: boolean;
     rtmpUrl: string;
     webrtcUrl: string;
+    hlsUrl: string;
   } {
     const streamer = this.streamers.get(roomId);
     const streaming = streamer?.getRunning() || false;
@@ -218,6 +225,7 @@ export class StreamManager {
       streaming,
       rtmpUrl: `${this.mediaMtxUrl}/room_${roomId}`,
       webrtcUrl: this.getWebRTCUrl(roomId),
+      hlsUrl: this.getHlsUrl(roomId),
     };
   }
 }
