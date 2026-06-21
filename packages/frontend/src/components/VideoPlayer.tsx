@@ -35,13 +35,10 @@ export default function VideoPlayer({ hlsUrl, roomId }: VideoPlayerProps) {
     if (Hls.isSupported()) {
       // 优先使用 hls.js，避免 Chrome 报告 canPlayType('maybe') 却无法解码
       hls = new Hls({
-        enableWorker: true,
+        enableWorker: false,
         lowLatencyMode: true,
-        maxBufferLength: 6,
-        maxMaxBufferLength: 10,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 5,
-        backBufferLength: 12,
+        maxBufferLength: 4,
+        maxMaxBufferLength: 8,
       });
       hlsRef.current = hls;
 

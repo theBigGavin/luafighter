@@ -141,10 +141,8 @@ export class FFmpegStreamer {
       '-tune', 'zerolatency',
       '-b:v', bitrate,
       '-maxrate', bitrate,
-      '-bufsize', '500k',
-      '-g', fps.toString(), // 1秒关键帧间隔，匹配 HLS segment
-      '-keyint_min', fps.toString(),
-      '-sc_threshold', '0',
+      '-bufsize', '1000k',
+      '-g', (fps * 2).toString(), // 2秒关键帧间隔
       '-pix_fmt', 'yuv420p',
       '-acodec', 'aac',
       '-b:a', '128k',
@@ -182,7 +180,7 @@ export class StreamManager {
       width: 640,
       height: 480,
       fps: 30,
-      bitrate: '1500k',
+      bitrate: '2000k',
     };
 
     const streamer = new FFmpegStreamer(config, {
