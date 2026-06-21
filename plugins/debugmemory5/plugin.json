@@ -1,0 +1,7 @@
+{
+  "plugin": {
+    "name": "debugmemory5",
+    "description": "Debug memory access v5",
+    "type": "plugin"
+  }
+}

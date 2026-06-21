@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # 行情数据服务
+  market-data:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.base
+    container_name: luafighter-market
+    command: ["node", "packages/market-data/dist/index.js"]
+    ports:
+      - "9001:9001"   # WebSocket
+      - "9002:9002"   # HTTP
+    environment:
+      - NODE_ENV=production
+    networks:
+      - luafighter-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9002/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # 对局管理器 + MAME 实例池
+  match-manager:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.base
+    container_name: luafighter-manager
+    command: ["node", "packages/match-manager/dist/index.js"]
+    ports:
+      - "9003:9003"   # HTTP API
+      - "9004:9004"   # Socket.IO
+    environment:
+      - NODE_ENV=production
+      - ROMS_DIR=/app/roms
+      - LUA_SCRIPT_PATH=/app/lua-scripts/drivers/automation.lua
+      - DISPLAY=:99
+    volumes:
+      - ./roms:/app/roms:ro
+      - ../lua-scripts:/app/lua-scripts:ro
+    depends_on:
+      - market-data
+      - mediamtx
+    networks:
+      - luafighter-net
+    privileged: true  # 需要运行 Xvfb 和 MAME
+
+  # 媒体推流服务
+  media-streamer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.base
+    container_name: luafighter-media
+    command: ["node", "packages/media-streamer/dist/index.js"]
+    ports:
+      - "9005:9005"   # HTTP API
+    environment:
+      - NODE_ENV=production
+      - MEDIA_MTX_URL=rtmp://mediamtx:1935/live
+    depends_on:
+      - mediamtx
+    networks:
+      - luafighter-net
+
+  # MediaMTX 网关 (RTMP -> WebRTC)
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: luafighter-mediamtx
+    ports:
+      - "1935:1935"    # RTMP
+      - "8888:8888"    # HLS
+      - "8889:8889"    # WebRTC
+      - "9997:9997"    # API
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    command: ["/mediamtx", "/mediamtx.yml"]
+    networks:
+      - luafighter-net
+
+  # React 前端 (Nginx)
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: luafighter-web
+    ports:
+      - "80:80"
+    depends_on:
+      - match-manager
+      - mediamtx
+    networks:
+      - luafighter-net
+
+networks:
+  luafighter-net:
+    driver: bridge

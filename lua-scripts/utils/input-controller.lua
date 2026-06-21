@@ -1,0 +1,735 @@
+--[[
+  LuaFighter 输入控制器封装
+  管理虚拟手柄状态，支持按键组合、连招序列
+  针对 MAME 0.288 API 优化
+
+  CPS1 输入注入方案（已实测验证有效）:
+  ──────────────────────────────────────────
+  MAME 0.288 的 CPS1 架构中 ioport field:set_value()
+  对内存映射 I/O（0x800000 区域）不生效，因为 CPS1 使用 IP_ACTIVE_LOW
+  而 set_value() 的 m_digital_value 机制不兼容 active-low 端口。
+
+  已验证方案：使用 install_read_tap() 直接在 68000 内存读路径上
+  修改 I/O 返回数据 (active-low = 按位清除)。
+
+  通过 MAME 0.288 实测确认的关键信息:
+  1. TAP 回调中绝对不能调用 print() / io.open() 等 I/O 操作！
+     MAME 在内存读取路径的上下文中执行回调，I/O 操作会导致错误并禁用 tap。
+     表现为 tap 前几次调用正常，后续被静默停用。
+  2. 游戏在 attract demo（CPU对战演示，约25-30秒）期间不检测输入。
+     必须等待 demo 结束后回到标题画面才开始检测按键。
+  3. cps1_dsw_r 对 0x800018 和 0x80001A 返回相同的 IN0 值，
+     但 0x80001C 和 0x80001E 是 DSWB/DSWC（不同的 I/O 端口），不能修改。
+  4. 0x800000-0x800001 返回 IN1（玩家方向/拳按钮），每帧约读2次。
+  5. CPS-B (0x800176) 每帧读1次用于保护检测，不包含按钮输入。
+
+  CPS1 内存映射 (SF2CE):
+    0x800000-0x800007 -> portr("IN1")   16-bit 玩家控制 (P1低8位+P2高8位)
+    0x800018          -> cps1_dsw_r     IN0 系统按钮 (投币/开始) 在返回值高字节
+    0x800030          -> cps1_coin_w    投币计数器/锁存器写入
+    0x800140-0x80017f -> CPS-B          保护芯片寄存器（每帧读一次 0x800176）
+
+  Neo Geo 输入注入方案（KOF97 实测有效）:
+  ──────────────────────────────────────────
+  Neo Geo 的 ioport field:set_value(1) 可直接拉低 active-low 位，
+  因此不需要 read-tap。按键释放必须显式调用 field:set_value(0)。
+  注意：方向键和攻击键在同一 port 的不同 bit 上，允许组合输入。
+]]
+
+local LOG_FILE = "/tmp/luafighter-debug.log"
+local function logMsg(msg)
+  local ok, fd = pcall(function() return io.open(LOG_FILE, "a") end)
+  if ok and fd then
+    fd:write(string.format("[%s] %s\n", os.date("%H:%M:%S"), tostring(msg)))
+    fd:flush()
+    fd:close()
+  end
+end
+
+local InputController = {}
+InputController.__index = InputController
+
+-- CPS1 SF2CE 端口映射 (通过 MAME CPS1 驱动源码 + 实测验证)
+-- :IN0 - 系统按钮 (投币/开始)  8-bit, IP_ACTIVE_LOW
+-- :IN1 - 方向 + 拳按钮 (P1低8位 P2高8位)  16-bit, IP_ACTIVE_LOW
+-- :IN2 - 踢按钮 (部分版本通过 CPS-B 读取)  8-bit, IP_ACTIVE_LOW
+local PORT_CONFIG = {
+  [1] = { tag = ":IN0", fields = {
+    P1_COIN_IN0      = 0x01,  -- SF2CE IN0: Coin 1 @ bit0
+    P2_COIN_IN0      = 0x01,  -- SF2CE IN0: same coin slot for both players
+    P1_START_IN0     = 0x10,  -- SF2CE IN0: 1 Player Start @ bit4
+    P2_START_IN0     = 0x20,  -- SF2CE IN0: 2 Players Start @ bit5
+  }},
+  [2] = { tag = ":IN1", fields = {
+    P1_JOYSTICK_RIGHT = 0x0001,
+    P1_JOYSTICK_LEFT  = 0x0002,
+    P1_JOYSTICK_DOWN  = 0x0004,
+    P1_JOYSTICK_UP    = 0x0008,
+    P1_BUTTON1        = 0x0010,
+    P1_BUTTON2        = 0x0020,
+    P1_BUTTON3        = 0x0040,
+  }},
+  [3] = { tag = ":IN1", fields = {
+    P2_JOYSTICK_RIGHT = 0x0100,
+    P2_JOYSTICK_LEFT  = 0x0200,
+    P2_JOYSTICK_DOWN  = 0x0400,
+    P2_JOYSTICK_UP    = 0x0800,
+    P2_BUTTON1        = 0x1000,
+    P2_BUTTON2        = 0x2000,
+    P2_BUTTON3        = 0x4000,
+  }},
+  [4] = { tag = ":IN2", fields = {
+    P1_BUTTON4 = 0x01,
+    P1_BUTTON5 = 0x02,
+    P1_BUTTON6 = 0x04,
+    P2_BUTTON4 = 0x10,
+    P2_BUTTON5 = 0x20,
+    P2_BUTTON6 = 0x40,
+  }},
+}
+
+-- 反向映射: inputName -> {portIndex, fieldMask, portTag} (CPS1 默认)
+local INPUT_FIELD_MAP = {}
+for portIdx, cfg in pairs(PORT_CONFIG) do
+  for name, mask in pairs(cfg.fields) do
+    INPUT_FIELD_MAP[name] = { port = portIdx, mask = mask, tag = cfg.tag }
+  end
+end
+
+-- Neo Geo 动态映射: inputName -> {portTag, fieldName, mask}
+local NEOGEO_FIELD_MAP = nil
+
+local function buildNeoGeoFieldMap(romConfig)
+  if NEOGEO_FIELD_MAP then return NEOGEO_FIELD_MAP end
+  local ports = romConfig and romConfig.neogeoInputPorts
+  local masks = romConfig and romConfig.neogeoFieldMasks
+  if not ports or not masks then return nil end
+
+  local map = {}
+  local function add(prefix, portTag)
+    for suffix, mask in pairs(masks) do
+      local name = prefix .. "_" .. suffix
+      local fieldName = prefix .. " " .. suffix
+      -- special-case START/COIN field names
+      if suffix == "START" then
+        fieldName = (prefix == "P1") and "1 Player Start" or "2 Players Start"
+      elseif suffix == "COIN" then
+        fieldName = (prefix == "P1") and "Coin 1" or "Coin 2"
+      end
+      map[name] = { portTag = portTag, fieldName = fieldName, mask = mask }
+    end
+  end
+  add("P1", ports.p1)
+  add("P2", ports.p2)
+  map["P1_START"] = { portTag = ports.start, fieldName = "1 Player Start", mask = 1 }
+  map["P2_START"] = { portTag = ports.start, fieldName = "2 Players Start", mask = 4 }
+  map["P1_COIN"] = { portTag = ports.coin, fieldName = "Coin 1", mask = 1 }
+  map["P2_COIN"] = { portTag = ports.coin, fieldName = "Coin 2", mask = 1 }
+  NEOGEO_FIELD_MAP = map
+  return map
+end
+
+-- 平台无关：根据 portName 获取底层映射
+local function getMapping(portName, platform)
+  if not portName then return nil end
+  if platform == "neogeo" then
+    return NEOGEO_FIELD_MAP and NEOGEO_FIELD_MAP[portName]
+  end
+  return INPUT_FIELD_MAP[portName]
+end
+
+-- 平台无关：设置单个 port 的硬件状态 (value: 0 释放, 1 按下)
+local function setPortValue(portName, value, platform)
+  value = value or 0
+  if platform == "neogeo" then
+    local mapping = NEOGEO_FIELD_MAP and NEOGEO_FIELD_MAP[portName]
+    if not mapping then return end
+    local ok, port = pcall(function()
+      return manager.machine.ioport.ports[mapping.portTag]
+    end)
+    if not ok or not port then return end
+    local field = port.fields[mapping.fieldName]
+    if not field then return end
+    pcall(function() field:set_value(value) end)
+    return
+  end
+
+  -- CPS1 / fallback
+  local mapping = INPUT_FIELD_MAP[portName]
+  if mapping and mapping.tag then
+    if not InputController._cps_state then
+      InputController._cps_state = { in0 = {}, in1 = {}, in2 = {} }
+    end
+    local key = ({ [":IN0"] = "in0", [":IN1"] = "in1", [":IN2"] = "in2" })[mapping.tag] or "in1"
+    if value == 1 then
+      InputController._cps_state[key][mapping.mask] = true
+    else
+      InputController._cps_state[key][mapping.mask] = nil
+    end
+  end
+end
+
+-- 当前输入状态 (公共)
+local activeInputs = {}
+local comboQueue = {}
+local comboTimer = 0
+local isExecutingCombo = false
+
+-- CPS1 检测缓存
+local isCPS1 = nil
+local cps1_warned = false  -- 是否已经输出过相关日志
+
+-- 检测是否是 CPS1 架构
+local function detectCPS1()
+  local m = manager.machine
+  if not m or not m.ioport then return false end
+  local port = m.ioport.ports[":IN2"]
+  if not port then return false end
+  for name, _ in pairs(port.fields) do
+    if name:find("Kick") then return true end
+  end
+  return false
+end
+
+local function checkCPS1()
+  if isCPS1 == nil then
+    isCPS1 = detectCPS1()
+  end
+  return isCPS1
+end
+
+function InputController.new(romConfig)
+  local obj = {}
+  setmetatable(obj, InputController)
+  obj.config = romConfig
+  obj.inputMap = {
+    p1 = romConfig.p1InputMap or {},
+    p2 = romConfig.p2InputMap or {},
+  }
+  obj.ports = {}
+  obj.fields = {}
+  obj.portsInitialized = false
+  -- CPS1 read-tap injection state
+  obj._cps_state = nil
+  obj._cps_taps_installed = false
+  obj._framesSinceTap = 0  -- 安装 tap 后的帧计数
+  obj._lastLogFrame = 0    -- 用于限制日志频率
+  -- platform detection
+  obj._platform = romConfig.platform or "cps1"
+  if obj._platform == "neogeo" then
+    buildNeoGeoFieldMap(romConfig)
+  end
+  return obj
+end
+
+-- 带频率限制的日志（每 60 帧最多输出一次，避免刷屏）
+local function limitedLog(msg, nowFrame, self)
+  if not nowFrame then
+    logMsg(msg)
+    return
+  end
+  if not self._lastLogFrame or nowFrame - self._lastLogFrame >= 60 then
+    logMsg(msg)
+    self._lastLogFrame = nowFrame
+  end
+end
+
+function InputController:_getField(portIndex, fieldMask)
+  if not self.fields[portIndex] then
+    self.fields[portIndex] = {}
+  end
+  local cache = self.fields[portIndex]
+  if cache[fieldMask] then
+    return cache[fieldMask]
+  end
+  local port = self.ports[portIndex]
+  if not port then return nil end
+  local ok, field = pcall(function() return port:field(fieldMask) end)
+  if ok and field then
+    cache[fieldMask] = field
+    return field
+  end
+  return nil
+end
+
+function InputController:initPorts()
+  local machine = manager.machine
+  if not machine or not machine.ioport then
+    if not cps1_warned then
+      cps1_warned = true
+    end
+    return false
+  end
+
+  if self._platform == "neogeo" then
+    -- Neo Geo 只需要确认配置中的端口存在
+    local ports = self.config and self.config.neogeoInputPorts
+    if ports then
+      local ok = true
+      for _, tag in pairs({ports.coin, ports.start, ports.p1, ports.p2}) do
+        local portOk, port = pcall(function() return machine.ioport.ports[tag] end)
+        if not portOk or not port then ok = false; break end
+      end
+      if ok then
+        self.portsInitialized = true
+        return true
+      end
+    end
+  end
+
+  for idx, cfg in pairs(PORT_CONFIG) do
+    local ok, port = pcall(function() return machine.ioport.ports[cfg.tag] end)
+    if ok and port then
+      self.ports[idx] = port
+    end
+  end
+
+  if self.ports[1] then
+    self.portsInitialized = true
+    return true
+  end
+  return false
+end
+
+-- ============ CPS1 Read-Tap Input Injection ============
+-- 已验证有效的注入方案（MAME 0.288 / CPS1-SF2CE 实测通过）
+--
+-- 约束条件（违反会导致 tap 被 MAME 静默禁用）:
+--   TAP 回调中不能有:
+--   - print() 调用
+--   - io.open() / io.write() / io.close() 等文件操作
+--   - 任何可能抛出 Lua 错误的操作 (pcall 也救不了，错误会传播到 MAME 内存系统)
+--   - 日志操作
+--
+-- NOTE: DSWC Free Play tap is now installed inside installCPS1Taps() below.
+-- register_prestart() is NOT used because it doesn't fire reliably when
+-- called from -autoboot_script (machine has already started).
+-- 被拦截地址:
+ --   0x800000-0x800007 : IN1 (方向/拳)  - 16-bit 端口值, active-low
+ --   0x800018-0x80001B : IN0 (投币/开始) - 在 cps1_dsw_r 返回值的低字节 (value | (dsw<<8))
+ --                       0x80001A 是 0x800018 的镜像，返回相同值
+ --                       0x80001C/0x80001E 是 DSWB/DSWC，不要修改
+
+function InputController:installCPS1Taps()
+  if self._cps_taps_installed then return true end
+
+  local m = manager.machine
+  if not m or not m.devices then return false end
+
+  local maincpu = m.devices[":maincpu"]
+  if not maincpu then return false end
+
+  local space = maincpu.spaces["program"]
+  if not space then return false end
+
+  self._cps_state = self._cps_state or { in0 = {}, in1 = {}, in2 = {} }
+  -- Tap diagnostic counters
+  self._dsw_tap_count = 0
+  self._main_tap_count = 0
+  self._dsw_tap_data = 0xFFFF
+
+  -- Tap 1: IN1 @ 0x800000-0x800007 (玩家方向/拳按钮)
+  -- 回调中严格禁止任何 I/O 操作！
+  local ok1, tap1 = pcall(function()
+    return space:install_read_tap(0x800000, 0x800007, "luafighter_in1", function(offset, data, mask)
+      local modified = data
+      self._main_tap_count = (self._main_tap_count or 0) + 1
+      -- IN1 (low byte): player buttons/joystick
+      for m, _ in pairs(self._cps_state and self._cps_state.in1 or {}) do
+        modified = modified & ~m
+      end
+      -- IN0 (high byte): coin/start -- cps1_input_r returns (IN0 << 8) | IN1
+      for m, _ in pairs(self._cps_state and self._cps_state.in0 or {}) do
+        modified = modified & ~(m << 8)
+      end
+      return modified
+    end)
+  end)
+
+  -- cps1_dsw_r() returns (IN0 << 8) | dsw(offset>>1)
+  -- The full range 0x800018-0x80001F has ONE handler for all 8 bytes.
+  -- Previous sub-range taps (0x800018-0x800019 for IN0, 0x80001E-0x80001F for DSWC)
+  -- were silently rejected by MAME. Must install ONE tap covering the ENTIRE range.
+  local ok2, tap2 = pcall(function()
+    return space:install_read_tap(0x800018, 0x80001F, "luafighter_dsw", function(offset, data, mask)
+      local modified = data
+      self._dsw_tap_count = (self._dsw_tap_count or 0) + 1
+      self._dsw_tap_data = data
+      -- IN0 is in the HIGH byte for ALL offsets (0, 2, 4, 6)
+      -- Must modify at ALL offsets since game reads from any of them
+      for m, _ in pairs(self._cps_state and self._cps_state.in0 or {}) do
+        modified = modified & ~(m << 8)
+      end
+      return modified
+    end)
+  end)
+
+  if ok1 and ok2 and tap1 and tap2 then
+   self._cps_taps_installed = true
+    self._tap_in1 = tap1
+    self._tap_dsw = tap2
+   self._framesSinceTap = 0
+   -- TEST: Read from both tap ranges to verify they intercept internal reads
+   local test_main = { pcall(function() return space:read_u16(0x800000) end) }
+   local test_dsw = { pcall(function() return space:read_u16(0x800018) end) }
+   -- Also check: where is the space?
+   local tap1_type = type(tap1)
+   local tap2_type = type(tap2)
+   local space_name = "(unknown)"
+   local dsw_fields = {}
+   if manager.machine and manager.machine.ioport then
+     local in2_port = manager.machine.ioport.ports[":IN0"]
+     if in2_port then
+       for fname, fval in pairs(in2_port.fields) do
+         table.insert(dsw_fields, fname)
+       end
+     end
+   end
+   logMsg(string.format("[InputController] CPS1 taps OK! tap1=%s tap2=%s mainTap=%d dswTap=%d in0fields=%s",
+     tap1_type, tap2_type, self._main_tap_count or 0, self._dsw_tap_count or 0,
+     table.concat(dsw_fields, ",")))
+   return true
+ end
+ logMsg(string.format("[InputController] CPS1 taps FAILED! ok1=%s ok2=%s tap1=%s tap2=%s",
+   tostring(ok1), tostring(ok2), type(tap1), type(tap2)))
+ return false
+end
+
+-- CPS1 state helpers
+function InputController:_cpsPress(portTag, mask)
+  self._cps_state = self._cps_state or { in0 = {}, in1 = {}, in2 = {} }
+  local key = ({ [":IN0"] = "in0", [":IN1"] = "in1", [":IN2"] = "in2" })[portTag] or "in1"
+  self._cps_state[key][mask] = true
+end
+
+function InputController:_cpsRelease(portTag, mask)
+  if not self._cps_state then return end
+  local key = ({ [":IN0"] = "in0", [":IN1"] = "in1", [":IN2"] = "in2" })[portTag] or "in1"
+  self._cps_state[key][mask] = nil
+end
+
+function InputController:_cpsClearAll()
+  self._cps_state = { in0 = {}, in1 = {}, in2 = {} }
+end
+
+function InputController:_installTapsIfNeeded()
+  if checkCPS1() and not self._cps_taps_installed then
+    self:installCPS1Taps()
+  end
+end
+-- ============ CPS1 End ============
+
+-- 内部：按下/释放一个 portName（平台无关）
+function InputController:_pressByName(portName, duration)
+  duration = duration or 6
+  if not portName then return end
+
+  if self._platform == "neogeo" then
+    setPortValue(portName, 1, "neogeo")
+    activeInputs[portName] = { frames = duration }
+    return
+  end
+
+  -- CPS1 / 默认路径
+  local mapping = INPUT_FIELD_MAP[portName]
+  if mapping and mapping.tag then
+    if checkCPS1() then
+      self:_installTapsIfNeeded()
+      self:_cpsPress(mapping.tag, mapping.mask)
+    else
+      -- Non-CPS1 fallback: 标准 field:set_value
+      local ok, port = pcall(function()
+        return manager.machine.ioport.ports[mapping.tag]
+      end)
+      if ok and port then
+        local ok2, field = pcall(function() return port:field(mapping.mask) end)
+        if ok2 and field then
+          pcall(function() field:set_value(1) end)
+        end
+      end
+    end
+    activeInputs[portName] = { frames = duration }
+  end
+end
+
+function InputController:_releaseByName(portName)
+  if not portName then return end
+  if not activeInputs[portName] then
+    -- 仍然尝试硬件释放，保证干净
+  end
+
+  if self._platform == "neogeo" then
+    setPortValue(portName, 0, "neogeo")
+    activeInputs[portName] = nil
+    return
+  end
+
+  local mapping = INPUT_FIELD_MAP[portName]
+  if mapping and mapping.tag then
+    if checkCPS1() then
+      self:_cpsRelease(mapping.tag, mapping.mask)
+      -- 同时清掉标准 ioport field，防止 fallback 路径残留
+      local f = self:_getField(mapping.port, mapping.mask)
+      if f then pcall(function() f:set_value(0) end) end
+    else
+      local f = self:_getField(mapping.port, mapping.mask)
+      if f then pcall(function() f:set_value(0) end) end
+    end
+  end
+  activeInputs[portName] = nil
+end
+
+function InputController:releaseAll()
+  for portName, _ in pairs(activeInputs) do
+    self:_releaseByName(portName)
+  end
+  activeInputs = {}
+  if checkCPS1() then
+    self:_cpsClearAll()
+  end
+end
+
+function InputController:press(logicalButtons, player, duration)
+  duration = duration or 6
+  local playerStr = player == 1 and "p1" or "p2"
+  for _, btn in ipairs(logicalButtons) do
+    local portName = self.inputMap[playerStr][btn]
+    if portName then
+      self:_pressByName(portName, duration)
+    end
+  end
+end
+
+function InputController:pressPorts(portNames, duration)
+  duration = duration or 6
+  for _, portName in ipairs(portNames) do
+    self:_pressByName(portName, duration)
+  end
+end
+
+function InputController:setDirection(player, direction)
+  local playerStr = player == 1 and "p1" or "p2"
+  local map = self.inputMap[playerStr]
+
+  -- 先释放该玩家所有方向键
+  for _, dir in ipairs({"UP", "DOWN", "LEFT", "RIGHT"}) do
+    local portName = map[dir]
+    if portName then
+      self:_releaseByName(portName)
+    end
+  end
+
+  local dirs = {}
+  if direction == "left" then dirs = {"LEFT"}
+  elseif direction == "right" then dirs = {"RIGHT"}
+  elseif direction == "up" then dirs = {"UP"}
+  elseif direction == "down" then dirs = {"DOWN"}
+  elseif direction == "upleft" then dirs = {"LEFT", "UP"}
+  elseif direction == "upright" then dirs = {"RIGHT", "UP"}
+  elseif direction == "downleft" then dirs = {"LEFT", "DOWN"}
+  elseif direction == "downright" then dirs = {"RIGHT", "DOWN"}
+  end
+
+  for _, dir in ipairs(dirs) do
+    local portName = map[dir]
+    if portName then
+      self:_pressByName(portName, 999)
+    end
+  end
+end
+
+function InputController:attack(player, button, duration)
+  duration = duration or 6
+  local playerStr = player == 1 and "p1" or "p2"
+  local portName = self.inputMap[playerStr][button]
+  if portName then
+    self:_pressByName(portName, duration)
+  end
+end
+
+function InputController:insertCoin(player)
+  local playerStr = (player == 1) and "p1" or "p2"
+  local portName = self.inputMap[playerStr]["COIN"]
+  if portName then
+    self:_pressByName(portName, 6)
+  end
+end
+
+function InputController:pressStart(player)
+  local playerStr = (player == 1) and "p1" or "p2"
+  local portName = self.inputMap[playerStr]["START"]
+  if portName then
+    self:_pressByName(portName, 8)
+  end
+end
+
+function InputController:executeCombo(comboName, player)
+  if checkCPS1() then
+    return false
+  end
+
+  local combos = self.config.combos or {}
+  local combo = combos[comboName]
+  if not combo then
+    return false
+  end
+
+  comboQueue = {}
+  for _, step in ipairs(combo) do
+    table.insert(comboQueue, {
+      buttons = step.buttons,
+      duration = step.duration or 6,
+      delay = step.delay or 0,
+      player = player,
+    })
+  end
+
+  isExecutingCombo = true
+  comboTimer = 0
+  return true
+end
+
+function InputController:updateFrame()
+  if not self.portsInitialized then
+    self:initPorts()
+    if not self.portsInitialized then return end
+  end
+
+  if checkCPS1() then
+    self:_installTapsIfNeeded()
+    if self._cps_taps_installed then
+      self._framesSinceTap = (self._framesSinceTap or 0) + 1
+    end
+    local toRelease = {}
+    for portName, info in pairs(activeInputs) do
+      if type(info) == "table" and info.frames then
+        info.frames = info.frames - 1
+        if info.frames <= 0 then
+          table.insert(toRelease, portName)
+        end
+      elseif type(info) == "table" and info.persistent then
+        -- persistent input: don't auto-release
+      end
+    end
+    for _, portName in ipairs(toRelease) do
+      self:_releaseByName(portName)
+    end
+    return
+  end
+
+  -- 非 CPS1（含 Neo Geo）: 标准 field:set_value 路径
+  if isExecutingCombo and #comboQueue > 0 then
+    comboTimer = comboTimer - 1
+    if comboTimer <= 0 then
+      self:releaseAll()
+      local step = table.remove(comboQueue, 1)
+      if step then
+        local buttons = {}
+        for _, btn in ipairs(step.buttons) do
+          local portName = self.inputMap[step.player == 1 and "p1" or "p2"][btn]
+          if portName then
+            table.insert(buttons, portName)
+          end
+        end
+        self:pressPorts(buttons, step.duration)
+        comboTimer = step.duration + (step.delay or 0)
+      end
+      if #comboQueue == 0 then
+        isExecutingCombo = false
+      end
+    end
+  end
+
+  local toRelease = {}
+  for portName, info in pairs(activeInputs) do
+    if type(info) == "table" and info.frames then
+      info.frames = info.frames - 1
+      if info.frames <= 0 then
+        table.insert(toRelease, portName)
+      end
+    elseif type(info) == "table" and info.persistent then
+      -- persistent input: don't auto-release
+    end
+  end
+  for _, portName in ipairs(toRelease) do
+    self:_releaseByName(portName)
+  end
+end
+
+-- 估计当前游戏阶段（基于安装 tap 后的帧计数）
+-- 用于上层决定是否适合投币/按键
+-- SF2CE attract demo 约 25-30 秒（1500-1800 帧）
+-- 保守起见 35 秒（2100 帧）后认为回到标题画面
+function InputController:estimateGamePhase()
+  local frames = self._framesSinceTap or 0
+  if frames < 1500 then
+    return "attract"
+  elseif frames < 1800 then
+    return "title_transition"
+  end
+  return "title_stable"
+end
+
+-- 持久性输入（在 updateFrame 中不会被自动释放）
+function InputController:setPersistent(portName)
+  if self._platform == "neogeo" then
+    setPortValue(portName, 1, "neogeo")
+    activeInputs[portName] = { persistent = true }
+    return
+  end
+
+  local mapping = INPUT_FIELD_MAP[portName]
+  if mapping then
+    if checkCPS1() then
+      self:_installTapsIfNeeded()
+      self:_cpsPress(mapping.tag, mapping.mask)
+      activeInputs[portName] = { persistent = true }
+    else
+      local f = self:_getField(mapping.port, mapping.mask)
+      if f then pcall(function() f:set_value(1) end) end
+      activeInputs[portName] = { persistent = true }
+    end
+  end
+end
+
+function InputController:clearPersistent(portName)
+  if self._platform == "neogeo" then
+    setPortValue(portName, 0, "neogeo")
+    activeInputs[portName] = nil
+    return
+  end
+
+  local mapping = INPUT_FIELD_MAP[portName]
+  if mapping then
+    if checkCPS1() then
+      self:_cpsRelease(mapping.tag, mapping.mask)
+      activeInputs[portName] = nil
+    else
+      local f = self:_getField(mapping.port, mapping.mask)
+      if f then pcall(function() f:set_value(0) end) end
+      activeInputs[portName] = nil
+    end
+  end
+end
+
+function InputController:clearAllPersistent()
+  for portName, info in pairs(activeInputs) do
+    if type(info) == "table" and info.persistent then
+      self:_releaseByName(portName)
+    end
+  end
+end
+
+function InputController:softReset()
+  local machine = manager.machine
+  if machine and machine.soft_reset then
+    pcall(function() machine:soft_reset() end)
+    return
+  end
+  if machine and machine.hard_reset then
+    pcall(function() machine:hard_reset() end)
+    return
+  end
+end
+
+return InputController

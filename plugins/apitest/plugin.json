@@ -1,0 +1,7 @@
+{
+  "plugin": {
+    "name": "apitest",
+    "description": "API test",
+    "type": "plugin"
+  }
+}

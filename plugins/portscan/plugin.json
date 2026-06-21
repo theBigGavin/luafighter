@@ -1,0 +1,7 @@
+{
+  "plugin": {
+    "name": "portscan",
+    "description": "Port scanner",
+    "type": "plugin"
+  }
+}

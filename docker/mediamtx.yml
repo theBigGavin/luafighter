@@ -1,0 +1,35 @@
+paths:
+  - /tmp/mediamtx
+
+logLevel: info
+
+# RTMP 服务器
+rtmp: yes
+rtmpAddress: :1935
+
+# HLS 服务器
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+
+# WebRTC 服务器
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcIPs: [0.0.0.0]
+
+# RTSP 服务器
+rtsp: no
+
+# 路径配置
+pathDefaults:
+  # 允许发布
+  source: publisher
+  # 不录制
+  record: no
+
+# 允许所有路径
+pathOverrides:
+  all:
+    source: publisher

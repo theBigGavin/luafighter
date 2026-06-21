@@ -1,0 +1,75 @@
+{
+  "rom": "sf2",
+  "name": "Street Fighter II: The World Warrior (街头霸王2)",
+  "stateAddress": "0xFF8000",
+  "stateValues": {
+    "attract": 0,
+    "title": 1,
+    "select": 2,
+    "loading": 3,
+    "fight": 4,
+    "ko": 5,
+    "win": 6
+  },
+  "p1HealthAddr": "0xFF8100",
+  "p2HealthAddr": "0xFF8102",
+  "p1XAddr": "0xFF8200",
+  "p2XAddr": "0xFF8202",
+  "p1YAddr": "0xFF8204",
+  "p2YAddr": "0xFF8206",
+  "maxHealth": 176,
+  "p1InputMap": {
+    "UP": "P1_JOYSTICK_UP",
+    "DOWN": "P1_JOYSTICK_DOWN",
+    "LEFT": "P1_JOYSTICK_LEFT",
+    "RIGHT": "P1_JOYSTICK_RIGHT",
+    "BUTTON1": "P1_BUTTON1",
+    "BUTTON2": "P1_BUTTON2",
+    "BUTTON3": "P1_BUTTON3",
+    "BUTTON4": "P1_BUTTON4",
+    "BUTTON5": "P1_BUTTON5",
+    "BUTTON6": "P1_BUTTON6",
+    "START": "P1_START",
+    "COIN": "P1_COIN"
+  },
+  "p2InputMap": {
+    "UP": "P2_JOYSTICK_UP",
+    "DOWN": "P2_JOYSTICK_DOWN",
+    "LEFT": "P2_JOYSTICK_LEFT",
+    "RIGHT": "P2_JOYSTICK_RIGHT",
+    "BUTTON1": "P2_BUTTON1",
+    "BUTTON2": "P2_BUTTON2",
+    "BUTTON3": "P2_BUTTON3",
+    "BUTTON4": "P2_BUTTON4",
+    "BUTTON5": "P2_BUTTON5",
+    "BUTTON6": "P2_BUTTON6",
+    "START": "P2_START",
+    "COIN": "P2_COIN"
+  },
+  "characters": [
+    "Ryu", "Ken", "Chun-Li", "Guile", "Zangief", "Dhalsim",
+    "E.Honda", "Blanka", "Balrog", "Vega", "Sagat", "M.Bison"
+  ],
+  "selectConfig": {
+    "p1CursorStartX": 0,
+    "p1CursorStartY": 0,
+    "p2CursorStartX": 5,
+    "p2CursorStartY": 0,
+    "confirmButton": "BUTTON1",
+    "moveDelayFrames": 10
+  },
+  "combos": {
+    "hadoken": [
+      { "buttons": ["DOWN"], "duration": 3, "delay": 0 },
+      { "buttons": ["DOWN", "RIGHT"], "duration": 3, "delay": 0 },
+      { "buttons": ["RIGHT"], "duration": 3, "delay": 0 },
+      { "buttons": ["BUTTON1"], "duration": 5, "delay": 0 }
+    ],
+    "shoryuken": [
+      { "buttons": ["RIGHT"], "duration": 3, "delay": 0 },
+      { "buttons": ["DOWN"], "duration": 3, "delay": 0 },
+      { "buttons": ["DOWN", "RIGHT"], "duration": 3, "delay": 0 },
+      { "buttons": ["BUTTON1"], "duration": 5, "delay": 0 }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "plugin": {
+    "name": "debugmemory2",
+    "description": "Debug memory access v2",
+    "type": "plugin",
+    "start": "init.lua"
+  }
+}

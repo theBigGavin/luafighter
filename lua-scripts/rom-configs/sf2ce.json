@@ -1,0 +1,172 @@
+{
+  "rom": "sf2ce",
+  "name": "Street Fighter II: Champion Edition",
+  "stateAddress": "0xFF8ABF",
+  "stateValues": {
+    "attract": 0,
+    "title": 0,
+    "select": 60,
+    "loading": 60,
+    "fight": 2,
+    "fight2": 22,
+    "fight3": 21,
+    "win": 21,
+    "idle": 21
+  },
+  "p1HealthAddr": "0xFF83E9",
+  "p2HealthAddr": "0xFF86E9",
+  "p1XAddr": "0xFF8550",
+  "p2XAddr": "0xFF8850",
+  "p1YAddr": "0xFF8452",
+  "p2YAddr": "0xFF8752",
+  "maxHealth": 144,
+  "p1InputMap": {
+    "UP": "P1_JOYSTICK_UP",
+    "DOWN": "P1_JOYSTICK_DOWN",
+    "LEFT": "P1_JOYSTICK_LEFT",
+    "RIGHT": "P1_JOYSTICK_RIGHT",
+    "BUTTON1": "P1_BUTTON1",
+    "BUTTON2": "P1_BUTTON2",
+    "BUTTON3": "P1_BUTTON3",
+    "BUTTON4": "P1_BUTTON4",
+    "BUTTON5": "P1_BUTTON5",
+    "BUTTON6": "P1_BUTTON6",
+    "START": "P1_START_IN0",
+    "COIN": "P1_COIN_IN0"
+  },
+  "p2InputMap": {
+    "UP": "P2_JOYSTICK_UP",
+    "DOWN": "P2_JOYSTICK_DOWN",
+    "LEFT": "P2_JOYSTICK_LEFT",
+    "RIGHT": "P2_JOYSTICK_RIGHT",
+    "BUTTON1": "P2_BUTTON1",
+    "BUTTON2": "P2_BUTTON2",
+    "BUTTON3": "P2_BUTTON3",
+    "BUTTON4": "P2_BUTTON4",
+    "BUTTON5": "P2_BUTTON5",
+    "BUTTON6": "P2_BUTTON6",
+    "START": "P2_START_IN0",
+    "COIN": "P2_COIN_IN0"
+  },
+  "characters": [
+    "Ryu",
+    "Ken",
+    "Chun-Li",
+    "Guile",
+    "Zangief",
+    "Dhalsim",
+    "E.Honda",
+    "Blanka",
+    "Balrog",
+    "Vega",
+    "Sagat",
+    "M.Bison",
+    "Cammy",
+    "T.Hawk",
+    "Fei Long",
+    "Dee Jay"
+  ],
+  "selectConfig": {
+    "p1CursorStartX": 0,
+    "p1CursorStartY": 0,
+    "p2CursorStartX": 7,
+    "p2CursorStartY": 0,
+    "confirmButton": "BUTTON1",
+    "moveDelayFrames": 10
+  },
+  "combos": {
+    "hadoken": [
+      {
+        "buttons": [
+          "DOWN"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "DOWN",
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "BUTTON1"
+        ],
+        "duration": 5,
+        "delay": 0
+      }
+    ],
+    "shoryuken": [
+      {
+        "buttons": [
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "DOWN"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "DOWN",
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "BUTTON1"
+        ],
+        "duration": 5,
+        "delay": 0
+      }
+    ],
+    "tatsumaki": [
+      {
+        "buttons": [
+          "DOWN"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "DOWN",
+          "LEFT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "LEFT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "BUTTON1"
+        ],
+        "duration": 5,
+        "delay": 0
+      }
+    ]
+  }
+}
