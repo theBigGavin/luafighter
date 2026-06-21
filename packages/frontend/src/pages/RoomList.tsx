@@ -3,9 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 
 interface RoomItem {
   roomId: string;
+  status: 'idle' | 'initializing' | 'running' | 'crashed' | 'stopped';
   rom: string;
   symbol: string;
-  status: 'idle' | 'running' | 'crashed' | 'stopped';
   uptime: number;
 }
 
@@ -54,6 +54,25 @@ export default function RoomList() {
     }
   };
 
+  const resetRoom = async (e: React.MouseEvent, roomId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchRooms();
+      } else {
+        alert('重置房间失败: ' + data.error);
+      }
+    } catch (err) {
+      alert('重置房间失败');
+    }
+  };
+
   const getRomName = (rom: string) => {
     const map: Record<string, string> = {
       sf2: '街头霸王2',
@@ -71,6 +90,23 @@ export default function RoomList() {
     return map[symbol] || symbol;
   };
 
+  const getStatusText = (status: RoomItem['status']) => {
+    switch (status) {
+      case 'running':
+        return '进行中';
+      case 'initializing':
+        return '初始化中';
+      case 'idle':
+        return '空闲';
+      default:
+        return '异常';
+    }
+  };
+
+  const canReset = (status: RoomItem['status']) => {
+    return status === 'crashed' || status === 'stopped' || status === 'idle';
+  };
+
   return (
     <div className="room-list-container">
       <div className="room-list-header">
@@ -85,9 +121,20 @@ export default function RoomList() {
           <Link to={`/room/${room.roomId}`} key={room.roomId} className="room-card">
             <div className="room-card-header">
               <span className="room-card-title">{room.roomId}</span>
-              <span className={`room-status ${room.status}`}>
-                {room.status === 'running' ? '进行中' : room.status === 'idle' ? '空闲' : '异常'}
-              </span>
+              <div className="room-card-actions">
+                {canReset(room.status) && (
+                  <button
+                    className="reset-btn"
+                    onClick={(e) => resetRoom(e, room.roomId)}
+                    title="用相同配置重新启动"
+                  >
+                    重置
+                  </button>
+                )}
+                <span className={`room-status ${room.status}`}>
+                  {getStatusText(room.status)}
+                </span>
+              </div>
             </div>
             <div className="room-card-info">
               <div>🎮 {getRomName(room.rom)}</div>
