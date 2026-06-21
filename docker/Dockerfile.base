@@ -32,7 +32,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 # 安装 MAME（从官方 PPA 或源码构建）
 RUN apt-get update && apt-get install -y \
     mame \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/games/mame /usr/local/bin/mame
 
 # 创建工作目录
 WORKDIR /app

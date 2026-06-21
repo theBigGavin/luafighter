@@ -27,7 +27,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.base
     container_name: luafighter-manager
-    command: ["node", "packages/match-manager/dist/index.js"]
+    command: ["bash", "-c", "Xvfb :99 -screen 0 1024x768x24 & node packages/match-manager/dist/index.js"]
     ports:
       - "9003:9003"   # HTTP API
       - "9004:9004"   # Socket.IO
@@ -39,6 +39,7 @@ services:
     volumes:
       - ./roms:/app/roms:ro
       - ../lua-scripts:/app/lua-scripts:ro
+      - ../plugins:/app/plugins:ro
     depends_on:
       - market-data
       - mediamtx
@@ -74,7 +75,7 @@ services:
       - "9997:9997"    # API
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
-    command: ["/mediamtx", "/mediamtx.yml"]
+    command: ["/mediamtx.yml"]
     networks:
       - luafighter-net
 
