@@ -14,9 +14,16 @@ export interface StrengthResult {
   };
 }
 
+const BASE_PRICES: Record<string, number> = {
+  IF2306: 3500,
+  IC2306: 5600,
+  '000001.SZ': 12.5,
+};
+
 export class StrengthCalculator {
   private windowSize: number;      // 滑动窗口大小（秒）
   private history: Map<string, MarketTick[]> = new Map();
+  private lastPrices: Map<string, number> = new Map();
 
   constructor(windowSize: number = 10) {
     this.windowSize = windowSize;
@@ -63,12 +70,26 @@ export class StrengthCalculator {
     const composite = strengthIndex * 0.8 + volRatio * 0.2;
     const finalStrength = Math.max(-1, Math.min(1, composite));
 
+    // 基于 strength 生成模拟最新价
+    const basePrice = BASE_PRICES[tick.symbol] || 100;
+    const prevPrice = this.lastPrices.get(tick.symbol) || basePrice;
+    const priceNoise = (Math.random() - 0.5) * basePrice * 0.002;
+    const priceDrift = finalStrength * basePrice * 0.005;
+    const lastPrice = parseFloat((prevPrice + priceNoise + priceDrift).toFixed(2));
+    const priceChange = parseFloat((lastPrice - prevPrice).toFixed(2));
+    this.lastPrices.set(tick.symbol, lastPrice);
+
     const marketStrength: MarketStrength = {
       symbol: tick.symbol,
       strengthIndex: parseFloat(finalStrength.toFixed(4)),
       bidAmountTotal: totalBidAmount,
       askAmountTotal: totalAskAmount,
+      bidVolumeTotal: totalBidVol,
+      askVolumeTotal: totalAskVol,
       diffRatio: total > 0 ? parseFloat((diff / total).toFixed(4)) : 0,
+      lastPrice,
+      priceChange,
+      timestamp: tick.timestamp,
     };
 
     return {

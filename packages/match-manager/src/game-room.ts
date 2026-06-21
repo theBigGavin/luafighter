@@ -222,15 +222,28 @@ export class GameRoom extends EventEmitter {
   }
 
   private onPhaseChange(phase: GamePhase): void {
-    this.gameState.phase = phase;
-    
-    if (phase === 'round_start' || phase === 'fighting') {
+    const normalized = normalizePhase(phase);
+    this.gameState.phase = normalized;
+
+    if (normalized === 'round_start' || normalized === 'fighting') {
       this.roundActive = true;
-    } else if (phase === 'round_end' || phase === 'game_end') {
+      // 确保前端在 phase 切换时能拿到正确的当前回合号
+      if (this.gameState.round) {
+        this.gameState.round.round = this.roundCount;
+      } else {
+        this.gameState.round = {
+          round: this.roundCount,
+          p1: { player: 1, health: this.p1Hp, maxHealth: this.maxHealth, x: this.p1X, y: 0, isStunned: false, isBlocking: false, isAirborne: false },
+          p2: { player: 2, health: this.p2Hp, maxHealth: this.maxHealth, x: this.p2X, y: 0, isStunned: false, isBlocking: false, isAirborne: false },
+          timeRemaining: 99,
+        };
+      }
+      this.emit('stateUpdate', this.gameState);
+    } else if (normalized === 'round_end' || normalized === 'game_end') {
       this.roundActive = false;
     }
-    
-    this.emit('phaseChange', phase);
+
+    this.emit('phaseChange', normalized);
   }
 
   private onLuaError(error: string): void {
@@ -256,9 +269,9 @@ export class GameRoom extends EventEmitter {
     this.lastStrategySend = now;
 
     const distance = Math.abs(this.p1X - this.p2X);
-    
+
     let strategies: { p1: any; p2: any };
-    
+
     if (this.currentStrength) {
       strategies = this.decisionEngine.decide(
         this.currentStrength,
@@ -281,4 +294,11 @@ export class GameRoom extends EventEmitter {
       this.luaBridge.send(strategies.p2);
     }
   }
+}
+
+function normalizePhase(phase: string): GamePhase {
+  const map: Record<string, GamePhase> = {
+    fight: 'fighting',
+  };
+  return (map[phase] || phase) as GamePhase;
 }

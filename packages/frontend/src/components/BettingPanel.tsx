@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BetSide, BetRecord } from '../hooks/useBetting';
+import { BetSide, BetRecord, PlaceBetResult } from '../hooks/useBetting';
 
 interface BettingPanelProps {
   balance: number;
@@ -7,14 +7,14 @@ interface BettingPanelProps {
   strengthIndex: number;
   currentRound: number;
   phase: string;
-  onPlaceBet: (side: BetSide, amount: number) => boolean;
+  onPlaceBet: (side: BetSide, amount: number) => PlaceBetResult;
 }
 
 const AMOUNTS = [100, 500, 1000];
 
 /**
  * 投注面板
- * 允许观众在每回合对战阶段下注 1P/2P 胜负
+ * 选择金额 + 方向后，点击「下单」下注
  */
 export default function BettingPanel({
   balance,
@@ -25,23 +25,35 @@ export default function BettingPanel({
   onPlaceBet,
 }: BettingPanelProps) {
   const [selectedAmount, setSelectedAmount] = useState(500);
-  const [lastError, setLastError] = useState<string | null>(null);
+  const [selectedSide, setSelectedSide] = useState<BetSide | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const canBet = phase === 'fighting' || phase === 'round_start';
+  const pendingRecord = records.find((r) => r.status === 'pending' && r.round === currentRound);
+  const alreadyBet = !!pendingRecord;
 
-  const handleBet = (side: BetSide) => {
-    setLastError(null);
+  const handlePlaceOrder = () => {
+    setMessage(null);
     if (!canBet) {
-      setLastError('仅在对战阶段可下注');
+      setMessage({ type: 'error', text: '仅在对战阶段可下注' });
       return;
     }
-    const ok = onPlaceBet(side, selectedAmount);
-    if (!ok) {
-      setLastError('余额不足');
+    if (alreadyBet) {
+      setMessage({ type: 'error', text: '本回合已下注' });
+      return;
+    }
+    if (!selectedSide) {
+      setMessage({ type: 'error', text: '请选择下注方向' });
+      return;
+    }
+    const result = onPlaceBet(selectedSide, selectedAmount);
+    if (result.success) {
+      setMessage({ type: 'success', text: `已下注 ${selectedAmount} 押${selectedSide === 'p1' ? '多方' : '空方'}` });
+    } else {
+      setMessage({ type: 'error', text: result.error || '下注失败' });
     }
   };
 
-  const pendingRecords = records.filter((r) => r.status === 'pending');
   const settledRecords = records.filter((r) => r.status !== 'pending').slice(0, 5);
 
   return (
@@ -66,35 +78,43 @@ export default function BettingPanel({
 
       <div className="betting-actions">
         <button
-          className="bet-btn p1"
-          onClick={() => handleBet('p1')}
-          disabled={!canBet || balance < selectedAmount}
+          className={`bet-btn p1 ${selectedSide === 'p1' ? 'selected' : ''}`}
+          onClick={() => setSelectedSide('p1')}
+          disabled={!canBet || alreadyBet}
         >
           <span className="bet-side">多方 1P 胜</span>
           <span className="bet-odds">赔率 {calculateOddsDisplay(strengthIndex, 'p1')}</span>
         </button>
         <button
-          className="bet-btn p2"
-          onClick={() => handleBet('p2')}
-          disabled={!canBet || balance < selectedAmount}
+          className={`bet-btn p2 ${selectedSide === 'p2' ? 'selected' : ''}`}
+          onClick={() => setSelectedSide('p2')}
+          disabled={!canBet || alreadyBet}
         >
           <span className="bet-side">空方 2P 胜</span>
           <span className="bet-odds">赔率 {calculateOddsDisplay(strengthIndex, 'p2')}</span>
         </button>
       </div>
 
-      {lastError && <div className="betting-error">{lastError}</div>}
+      <button
+        className="order-btn"
+        onClick={handlePlaceOrder}
+        disabled={!canBet || alreadyBet || balance < selectedAmount}
+      >
+        {alreadyBet ? '本回合已下注' : canBet ? '下单' : '非对战阶段'}
+      </button>
 
-      {pendingRecords.length > 0 && (
+      {message && (
+        <div className={`betting-message ${message.type}`}>{message.text}</div>
+      )}
+
+      {pendingRecord && (
         <div className="betting-section">
           <h4>当前下注 (Round {currentRound})</h4>
           <ul className="betting-list">
-            {pendingRecords.map((record) => (
-              <li key={record.id} className="betting-item pending">
-                <span>{record.side === 'p1' ? '多方 1P' : '空方 2P'}</span>
-                <span>{record.amount} @ x{record.odds}</span>
-              </li>
-            ))}
+            <li className="betting-item pending">
+              <span>{pendingRecord.side === 'p1' ? '多方 1P' : '空方 2P'}</span>
+              <span>{pendingRecord.amount} @ x{pendingRecord.odds}</span>
+            </li>
           </ul>
         </div>
       )}

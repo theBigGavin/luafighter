@@ -129,6 +129,10 @@ export class FFmpegStreamer {
       inputArgs.push('-r', fps.toString());
       inputArgs.push('-s', `${width}x${height}`);
       inputArgs.push('-i', `${display}.0+0,0`);
+
+      // 捕获 PulseAudio null sink 的 monitor 作为音频源
+      inputArgs.push('-f', 'pulse');
+      inputArgs.push('-i', `${process.env.PULSE_SINK || 'luafighter'}.monitor`);
     }
 
     const outputArgs: string[] = [
@@ -140,6 +144,10 @@ export class FFmpegStreamer {
       '-bufsize', '1000k',
       '-g', (fps * 2).toString(), // 2秒关键帧间隔
       '-pix_fmt', 'yuv420p',
+      '-acodec', 'aac',
+      '-b:a', '128k',
+      '-ar', '48000',
+      '-ac', '2',
       '-f', 'flv',
       rtmpUrl,
     ];

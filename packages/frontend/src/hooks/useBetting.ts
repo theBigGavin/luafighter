@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 export type BetSide = 'p1' | 'p2';
 
@@ -12,9 +12,9 @@ export interface BetRecord {
   profit: number;
 }
 
-export interface BettingState {
-  balance: number;
-  records: BetRecord[];
+export interface PlaceBetResult {
+  success: boolean;
+  error?: string;
 }
 
 interface RoundResult {
@@ -31,12 +31,19 @@ interface GameResult {
 /**
  * 本地模拟投注状态管理
  * - 余额从 10000 开始
- * - 赔率根据多空强度动态计算：强势方赔率更低，弱势方赔率更高
+ * - 每回合只能下一单
+ * - 赔率根据多空强度动态计算
  * - roundEnd / gameEnd 时结算当前 pending 投注
  */
 export function useBetting(initialBalance = 10000) {
   const [balance, setBalance] = useState(initialBalance);
+  const balanceRef = useRef(initialBalance);
   const [records, setRecords] = useState<BetRecord[]>([]);
+
+  const syncBalance = useCallback((value: number) => {
+    balanceRef.current = value;
+    setBalance(value);
+  }, []);
 
   /**
    * 根据多空强度计算赔率
@@ -45,16 +52,21 @@ export function useBetting(initialBalance = 10000) {
   const calculateOdds = useCallback((strengthIndex: number, side: BetSide): number => {
     const s = Math.max(-1, Math.min(1, strengthIndex));
     if (side === 'p1') {
-      // P1 优势时赔率降低，劣势时赔率升高
       return parseFloat((1.5 + 1.5 * (1 - s) / 2).toFixed(2));
     }
-    // P2 优势时赔率降低，劣势时赔率升高
     return parseFloat((1.5 + 1.5 * (1 + s) / 2).toFixed(2));
   }, []);
 
   const placeBet = useCallback(
-    (side: BetSide, amount: number, strengthIndex: number, round: number): boolean => {
-      if (amount <= 0 || amount > balance) return false;
+    (side: BetSide, amount: number, strengthIndex: number, round: number): PlaceBetResult => {
+      if (amount <= 0) return { success: false, error: '投注金额无效' };
+      if (amount > balanceRef.current) return { success: false, error: '余额不足' };
+
+      // 每回合只能下一单
+      const existingPending = records.find((r) => r.status === 'pending' && r.round === round);
+      if (existingPending) {
+        return { success: false, error: '本回合已下注' };
+      }
 
       const odds = calculateOdds(strengthIndex, side);
       const newRecord: BetRecord = {
@@ -67,42 +79,51 @@ export function useBetting(initialBalance = 10000) {
         profit: 0,
       };
 
-      setBalance((prev) => prev - amount);
+      const newBalance = balanceRef.current - amount;
+      syncBalance(newBalance);
       setRecords((prev) => [newRecord, ...prev]);
-      return true;
+      return { success: true };
     },
-    [balance, calculateOdds]
+    [records, calculateOdds, syncBalance]
   );
 
   const settleRound = useCallback((result: RoundResult) => {
+    let balanceDelta = 0;
     setRecords((prev) =>
       prev.map((bet) => {
         if (bet.status !== 'pending' || bet.round !== result.round) return bet;
         const won = (bet.side === 'p1' && result.winner === 1) || (bet.side === 'p2' && result.winner === 2);
         if (won) {
-          const profit = Math.floor(bet.amount * bet.odds);
-          setBalance((b) => b + profit);
-          return { ...bet, status: 'win', profit: profit - bet.amount };
+          const payout = Math.floor(bet.amount * bet.odds);
+          balanceDelta += payout;
+          return { ...bet, status: 'win', profit: payout - bet.amount };
         }
         return { ...bet, status: 'lose', profit: -bet.amount };
       })
     );
-  }, []);
+    if (balanceDelta !== 0) {
+      syncBalance(balanceRef.current + balanceDelta);
+    }
+  }, [syncBalance]);
 
   const settleGame = useCallback((result: GameResult) => {
+    let balanceDelta = 0;
     setRecords((prev) =>
       prev.map((bet) => {
         if (bet.status !== 'pending') return bet;
         const won = (bet.side === 'p1' && result.winner === 1) || (bet.side === 'p2' && result.winner === 2);
         if (won) {
-          const profit = Math.floor(bet.amount * bet.odds);
-          setBalance((b) => b + profit);
-          return { ...bet, status: 'win', profit: profit - bet.amount };
+          const payout = Math.floor(bet.amount * bet.odds);
+          balanceDelta += payout;
+          return { ...bet, status: 'win', profit: payout - bet.amount };
         }
         return { ...bet, status: 'lose', profit: -bet.amount };
       })
     );
-  }, []);
+    if (balanceDelta !== 0) {
+      syncBalance(balanceRef.current + balanceDelta);
+    }
+  }, [syncBalance]);
 
   return {
     balance,

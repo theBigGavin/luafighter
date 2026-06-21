@@ -76,6 +76,8 @@ export class MameProcessManager {
         LUAFIGHTER_HOST: 'localhost',
         LUAFIGHTER_PORT: this.config.wsPort.toString(),
         DISPLAY: this.config.display,
+        PULSE_SINK: process.env.PULSE_SINK || 'luafighter',
+        PULSE_SERVER: process.env.PULSE_SERVER || 'unix:/tmp/pulse/native',
       },
       cwd: this.config.romsDir,
       detached: false,
@@ -153,6 +155,12 @@ export class MameProcessManager {
       '-autoboot_script', this.config.luaScriptPath,
       '-verbose',
     ];
+
+    if (this.config.soundEnabled) {
+      args.push('-sound', 'pulse');
+    } else {
+      args.push('-sound', 'none');
+    }
 
     return args;
   }
@@ -241,7 +249,7 @@ export class MamePool {
       luaScriptPath: this.luaScriptPath,
       romsDir: this.romsDir,
       windowed: true,
-      soundEnabled: false,
+      soundEnabled: true,
     };
 
     const manager = new MameProcessManager(config, {

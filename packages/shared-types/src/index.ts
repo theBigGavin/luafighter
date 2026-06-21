@@ -21,7 +21,12 @@ export interface MarketStrength {
   strengthIndex: number;  // -1.0 (空方绝对优势) ~ 1.0 (多方绝对优势)
   bidAmountTotal: number;
   askAmountTotal: number;
+  bidVolumeTotal: number;
+  askVolumeTotal: number;
   diffRatio: number;      // (bid - ask) / (bid + ask)
+  lastPrice: number;      // 最新成交价
+  priceChange: number;    // 较上一 tick 涨跌额
+  timestamp: number;      // tick 时间戳
 }
 
 // -----------------------------------

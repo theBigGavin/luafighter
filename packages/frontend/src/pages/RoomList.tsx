@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 interface RoomItem {
@@ -9,14 +9,27 @@ interface RoomItem {
   uptime: number;
 }
 
+const ROM_NAMES: Record<string, string> = {
+  sf2: '街头霸王2',
+  sf2ce: '超级街霸2X',
+  kof97: '拳皇97',
+};
+
+const SYMBOL_NAMES: Record<string, string> = {
+  IF2306: '沪深300期货',
+  IC2306: '中证500期货',
+  '000001.SZ': '平安银行',
+};
+
 /**
  * 房间列表页面
  */
-
 export default function RoomList() {
   const [rooms, setRooms] = useState<RoomItem[]>([]);
   const [showModal, setShowModal] = useState(false);
-  const [newRoom, setNewRoom] = useState({ rom: 'sf2', symbol: 'IF2306' });
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [newRoom, setNewRoom] = useState({ rom: 'sf2ce', symbol: 'IF2306' });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -35,7 +48,15 @@ export default function RoomList() {
     }
   };
 
+  const hasActiveRoom = useMemo(
+    () => rooms.some((r) => r.status === 'running' || r.status === 'initializing'),
+    [rooms]
+  );
+
   const createRoom = async () => {
+    if (isCreating) return;
+    setIsCreating(true);
+    setCreateError(null);
     try {
       const res = await fetch('/api/rooms', {
         method: 'POST',
@@ -47,10 +68,12 @@ export default function RoomList() {
         setShowModal(false);
         navigate(`/room/${data.roomId}`);
       } else {
-        alert('创建房间失败: ' + data.error);
+        setCreateError(data.error || '创建房间失败');
       }
     } catch (err) {
-      alert('创建房间失败');
+      setCreateError('网络错误，请重试');
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -73,22 +96,25 @@ export default function RoomList() {
     }
   };
 
-  const getRomName = (rom: string) => {
-    const map: Record<string, string> = {
-      sf2: '街头霸王2',
-      sf2ce: '超级街霸2X',
-      kof97: '拳皇97',
-    };
-    return map[rom] || rom;
+  const stopRoom = async (e: React.MouseEvent, roomId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm('确定要结束该房间吗？')) return;
+    try {
+      const res = await fetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        await fetchRooms();
+      } else {
+        alert('结束房间失败: ' + (data.error || '未知错误'));
+      }
+    } catch (err) {
+      alert('结束房间失败');
+    }
   };
 
-  const getSymbolName = (symbol: string) => {
-    const map: Record<string, string> = {
-      IF2306: '沪深300期货',
-      IC2306: '中证500期货',
-    };
-    return map[symbol] || symbol;
-  };
+  const getRomName = (rom: string) => ROM_NAMES[rom] || rom;
+  const getSymbolName = (symbol: string) => SYMBOL_NAMES[symbol] || symbol;
 
   const getStatusText = (status: RoomItem['status']) => {
     switch (status) {
@@ -103,51 +129,69 @@ export default function RoomList() {
     }
   };
 
-  const canReset = (status: RoomItem['status']) => {
-    return status === 'crashed' || status === 'stopped' || status === 'idle';
-  };
+  const canReset = (status: RoomItem['status']) =>
+    status === 'crashed' || status === 'stopped' || status === 'idle';
+  const canStop = (status: RoomItem['status']) =>
+    status === 'running' || status === 'initializing';
 
   return (
     <div className="room-list-container">
       <div className="room-list-header">
         <h1>对战房间</h1>
-        <button className="create-btn" onClick={() => setShowModal(true)}>
+        <button
+          className="create-btn"
+          onClick={() => {
+            setCreateError(null);
+            setShowModal(true);
+          }}
+          disabled={hasActiveRoom}
+          title={hasActiveRoom ? '已有一个进行中的房间，请先结束' : '创建新房间'}
+        >
           + 创建房间
         </button>
       </div>
 
       <div className="room-grid">
         {rooms.map((room) => (
-          <Link to={`/room/${room.roomId}`} key={room.roomId} className="room-card">
-            <div className="room-card-header">
-              <span className="room-card-title">{room.roomId}</span>
-              <div className="room-card-actions">
-                {canReset(room.status) && (
-                  <button
-                    className="reset-btn"
-                    onClick={(e) => resetRoom(e, room.roomId)}
-                    title="用相同配置重新启动"
-                  >
-                    重置
-                  </button>
-                )}
+          <div key={room.roomId} className="room-card">
+            <Link to={`/room/${room.roomId}`} className="room-card-body">
+              <div className="room-card-header">
+                <span className="room-card-title">{room.roomId}</span>
                 <span className={`room-status ${room.status}`}>
                   {getStatusText(room.status)}
                 </span>
               </div>
+              <div className="room-card-info">
+                <div>🎮 {getRomName(room.rom)}</div>
+                <div>📈 {getSymbolName(room.symbol)}</div>
+                <div>⏱️ 运行 {formatUptime(room.uptime)}</div>
+              </div>
+            </Link>
+            <div className="room-card-actions">
+              {canStop(room.status) && (
+                <button
+                  className="stop-btn"
+                  onClick={(e) => stopRoom(e, room.roomId)}
+                  title="结束正在运行的房间"
+                >
+                  结束
+                </button>
+              )}
+              {canReset(room.status) && (
+                <button
+                  className="reset-btn"
+                  onClick={(e) => resetRoom(e, room.roomId)}
+                  title="用相同配置重新启动"
+                >
+                  重置
+                </button>
+              )}
             </div>
-            <div className="room-card-info">
-              <div>🎮 {getRomName(room.rom)}</div>
-              <div>📈 {getSymbolName(room.symbol)}</div>
-              <div>⏱️ 运行 {formatUptime(room.uptime)}</div>
-            </div>
-          </Link>
+          </div>
         ))}
         {rooms.length === 0 && (
-          <div className="room-card" style={{ opacity: 0.6, textAlign: 'center' }}>
-            <div style={{ padding: '40px 0', color: '#6b7280' }}>
-              暂无活跃房间，点击上方按钮创建
-            </div>
+          <div className="room-empty">
+            暂无活跃房间，点击上方按钮创建
           </div>
         )}
       </div>
@@ -178,12 +222,19 @@ export default function RoomList() {
                 <option value="000001.SZ">000001.SZ - 平安银行</option>
               </select>
             </div>
+
+            {createError && <div className="modal-error">{createError}</div>}
+
             <div className="modal-actions">
-              <button className="cancel-btn" onClick={() => setShowModal(false)}>
+              <button className="cancel-btn" onClick={() => setShowModal(false)} disabled={isCreating}>
                 取消
               </button>
-              <button className="confirm-btn" onClick={createRoom}>
-                创建
+              <button
+                className="confirm-btn"
+                onClick={createRoom}
+                disabled={isCreating || hasActiveRoom}
+              >
+                {isCreating ? '创建中...' : '创建'}
               </button>
             </div>
           </div>

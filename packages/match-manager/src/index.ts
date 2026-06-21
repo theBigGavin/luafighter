@@ -193,6 +193,12 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     return;
   }
 
+  // 当前 Docker 环境只配置了一个 Xvfb display，限制为单活跃房间
+  if (rooms.size >= 1) {
+    res.status(409).json({ error: '当前只允许一个活跃房间，请先结束现有房间' });
+    return;
+  }
+
   try {
     const config: RoomConfig = {
       roomId: id,

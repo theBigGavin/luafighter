@@ -40,7 +40,7 @@ export default function StrengthChart({ data }: StrengthChartProps) {
         trigger: 'axis',
         formatter: (params: any) => {
           const p = params[0];
-          return `${p.name}<br/>强度: ${p.value.toFixed(4)}`;
+          return `${p.name}<br/>强度: ${Number(p.value).toFixed(4)}`;
         },
       },
       xAxis: {
@@ -70,17 +70,27 @@ export default function StrengthChart({ data }: StrengthChartProps) {
           lineStyle: {
             width: 2,
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: '#22c55e' },
+              { offset: 0, color: '#ef4444' },
               { offset: 0.5, color: '#9ca3af' },
-              { offset: 1, color: '#ef4444' },
+              { offset: 1, color: '#22c55e' },
             ]),
           },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(34, 197, 94, 0.1)' },
+              { offset: 0, color: 'rgba(239, 68, 68, 0.1)' },
               { offset: 0.5, color: 'rgba(156, 163, 175, 0.05)' },
-              { offset: 1, color: 'rgba(239, 68, 68, 0.1)' },
+              { offset: 1, color: 'rgba(34, 197, 94, 0.1)' },
             ]),
+          },
+          markLine: {
+            symbol: 'none',
+            data: [{ yAxis: 0 }],
+            lineStyle: {
+              color: '#4b5563',
+              width: 1,
+              type: 'dashed',
+            },
+            label: { show: false },
           },
         },
       ],

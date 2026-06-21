@@ -67,9 +67,14 @@ html, body {
   box-sizing: border-box;
 }
 
+.app-main.watch-mode {
+  padding: 0;
+  max-width: none;
+}
+
 /* 房间列表 */
 .room-list-container {
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
@@ -95,17 +100,22 @@ html, body {
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
 }
 
-.create-btn:hover {
+.create-btn:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
+.create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .room-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 16px;
 }
 
@@ -113,12 +123,10 @@ html, body {
   background: #1a1d23;
   border: 1px solid #2a2d35;
   border-radius: 12px;
-  padding: 20px;
-  cursor: pointer;
+  overflow: hidden;
   transition: all 0.2s;
-  text-decoration: none;
-  color: inherit;
-  display: block;
+  display: flex;
+  flex-direction: column;
 }
 
 .room-card:hover {
@@ -127,10 +135,18 @@ html, body {
   box-shadow: 0 4px 16px rgba(102, 126, 234, 0.15);
 }
 
+.room-card-body {
+  padding: 20px;
+  text-decoration: none;
+  color: inherit;
+  flex: 1;
+}
+
 .room-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
@@ -138,12 +154,25 @@ html, body {
   font-size: 16px;
   font-weight: 600;
   color: #fff;
+  word-break: break-all;
 }
 
 .room-card-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid #2a2d35;
+  background: rgba(0, 0, 0, 0.15);
+  flex-wrap: wrap;
+}
+
+.room-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 0;
+  color: #6b7280;
+  font-size: 14px;
 }
 
 .reset-btn {
@@ -161,6 +190,23 @@ html, body {
 .reset-btn:hover {
   background: rgba(102, 126, 234, 0.25);
   border-color: rgba(102, 126, 234, 0.5);
+}
+
+.stop-btn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.stop-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .room-status {
@@ -278,15 +324,24 @@ html, body {
   color: #9ca3af;
 }
 
-.modal-actions button:hover {
+.modal-actions button:hover:not(:disabled) {
   opacity: 0.9;
+}
+
+.modal-error {
+  color: #ef4444;
+  font-size: 13px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 6px;
 }
 
 /* 观看页面 */
 .watch-room {
   display: flex;
-  gap: 20px;
-  height: calc(100vh - 80px);
+  gap: 16px;
+  height: calc(100vh - 64px);
 }
 
 .video-section {
@@ -295,6 +350,16 @@ html, body {
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+  position: relative;
+}
+
+.video-container-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .video-container {
@@ -344,6 +409,112 @@ html, body {
 
 .video-overlay.error {
   color: #ef4444;
+}
+
+.connection-status {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 20px;
+  font-size: 12px;
+  color: #e0e0e0;
+  backdrop-filter: blur(4px);
+  z-index: 10;
+}
+
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.connection-dot.connected {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+.connection-dot.disconnected {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
+.connection-divider {
+  color: #6b7280;
+}
+
+.scoreboard-overlay {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.scoreboard.compact {
+  width: 260px;
+  padding: 12px;
+  background: rgba(26, 29, 35, 0.85);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
+.compact-header {
+  margin-bottom: 8px;
+}
+
+.compact-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.compact-side {
+  flex: 1;
+  min-width: 0;
+}
+
+.compact-name {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.compact-name.p1 { color: #f87171; }
+.compact-name.p2 { color: #60a5fa; }
+
+.health-bar.compact-bar {
+  height: 6px;
+}
+
+.compact-text {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+  text-align: right;
+}
+
+.vs-divider.compact-vs {
+  font-size: 14px;
+}
+
+.trend-panel {
+  flex-shrink: 0;
+  height: 160px;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+}
+
+.trend-panel .chart-container {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  padding: 4px;
 }
 
 /* 比分板 */
@@ -474,12 +645,12 @@ html, body {
 }
 
 .gauge-fill.bull {
-  background: linear-gradient(90deg, #22c55e, #16a34a);
+  background: linear-gradient(90deg, #ef4444, #dc2626);
   margin-left: 50%;
 }
 
 .gauge-fill.bear {
-  background: linear-gradient(90deg, #ef4444, #dc2626);
+  background: linear-gradient(90deg, #22c55e, #16a34a);
   margin-left: auto;
   margin-right: 50%;
 }
@@ -498,9 +669,68 @@ html, body {
   font-family: 'SF Mono', monospace;
 }
 
-.gauge-value.bull { color: #22c55e; }
-.gauge-value.bear { color: #ef4444; }
+.gauge-value.bull { color: #ef4444; }
+.gauge-value.bear { color: #22c55e; }
 .gauge-value.neutral { color: #9ca3af; }
+
+/* 市场面板 */
+.market-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.market-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.market-subtitle {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.price-block {
+  text-align: right;
+}
+
+.price-value {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: 'SF Mono', monospace;
+}
+
+.price-change {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.market-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.market-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.market-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.market-bar.thin {
+  height: 4px;
+  border-radius: 2px;
+}
 
 /* 数据图表容器 */
 .chart-container {
@@ -511,6 +741,29 @@ html, body {
 }
 
 /* 事件日志 */
+.event-log-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.event-log-toggle {
+  background: rgba(102, 126, 234, 0.15);
+  color: #667eea;
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.event-log-toggle:hover {
+  background: rgba(102, 126, 234, 0.25);
+  border-color: rgba(102, 126, 234, 0.5);
+}
+
 .event-log {
   max-height: 200px;
   overflow-y: auto;
@@ -637,13 +890,56 @@ html, body {
 }
 
 .bet-btn.p2 {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: linear-gradient(135deg, #22c55e, #16a34a);
   color: #fff;
+}
+
+.bet-btn.selected {
+  box-shadow: 0 0 0 2px #fff, 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .bet-btn:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.order-btn {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.order-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.order-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.betting-message {
+  font-size: 12px;
+  text-align: center;
+  padding: 6px;
+  border-radius: 6px;
+}
+
+.betting-message.success {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.betting-message.error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .bet-side {

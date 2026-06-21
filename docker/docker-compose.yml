@@ -27,7 +27,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.base
     container_name: luafighter-manager
-    command: ["bash", "-c", "Xvfb :99 -ac -screen 0 640x480x24 & node packages/match-manager/dist/index.js"]
+    command: ["bash", "-c", "mkdir -p /tmp/pulse && Xvfb :99 -ac -screen 0 640x480x24 & PULSE_RUNTIME_PATH=/tmp/pulse pulseaudio --start --exit-idle-time=-1 && PULSE_RUNTIME_PATH=/tmp/pulse pactl load-module module-null-sink sink_name=luafighter sink_properties=device.description=LuaFighter && node packages/match-manager/dist/index.js"]
     ports:
       - "9003:9003"   # HTTP API
       - "9004:9004"   # Socket.IO
@@ -36,6 +36,8 @@ services:
       - ROMS_DIR=/app/roms
       - LUA_SCRIPT_PATH=/app/lua-scripts/drivers/automation.lua
       - DISPLAY=:99
+      - PULSE_SINK=luafighter
+      - PULSE_RUNTIME_PATH=/tmp/pulse
       - MARKET_WS_HOST=market-data
       - MEDIA_STREAMER_HOST=media-streamer
     volumes:
@@ -43,6 +45,7 @@ services:
       - ../lua-scripts:/app/lua-scripts:ro
       - ../plugins:/app/plugins:ro
       - x11-sock:/tmp/.X11-unix
+      - pulse-sock:/tmp/pulse
     depends_on:
       - market-data
       - mediamtx
@@ -64,8 +67,12 @@ services:
       - NODE_ENV=production
       - MEDIA_MTX_URL=rtmp://mediamtx:1935/live
       - DISPLAY=:99
+      - PULSE_SINK=luafighter
+      - PULSE_RUNTIME_PATH=/tmp/pulse
+      - PULSE_SERVER=unix:/tmp/pulse/native
     volumes:
       - x11-sock:/tmp/.X11-unix
+      - pulse-sock:/tmp/pulse
     depends_on:
       - mediamtx
     networks:
@@ -108,4 +115,6 @@ networks:
 
 volumes:
   x11-sock:
+    driver: local
+  pulse-sock:
     driver: local

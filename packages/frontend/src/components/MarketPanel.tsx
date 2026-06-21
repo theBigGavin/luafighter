@@ -1,21 +1,36 @@
-
 interface MarketPanelProps {
   strength: number;
   bidAmount: number;
   askAmount: number;
+  bidVolume?: number;
+  askVolume?: number;
+  lastPrice?: number;
+  priceChange?: number;
   symbol: string;
 }
 
 /**
  * 多空仪表盘面板
- * 显示实时多空强度、成交额对比
+ * 显示最新价、多空成交额/成交量对比、多空强度
  */
 
-export default function MarketPanel({ strength, bidAmount, askAmount, symbol }: MarketPanelProps) {
-  const diff = bidAmount - askAmount;
-  const total = bidAmount + askAmount;
-  const bullPercent = total > 0 ? (bidAmount / total) * 100 : 50;
-  const bearPercent = total > 0 ? (askAmount / total) * 100 : 50;
+export default function MarketPanel({
+  strength,
+  bidAmount,
+  askAmount,
+  bidVolume = 0,
+  askVolume = 0,
+  lastPrice,
+  priceChange = 0,
+  symbol,
+}: MarketPanelProps) {
+  const amountTotal = bidAmount + askAmount;
+  const bullAmountPercent = amountTotal > 0 ? (bidAmount / amountTotal) * 100 : 50;
+  const bearAmountPercent = amountTotal > 0 ? (askAmount / amountTotal) * 100 : 50;
+
+  const volTotal = bidVolume + askVolume;
+  const bullVolPercent = volTotal > 0 ? (bidVolume / volTotal) * 100 : 50;
+  const bearVolPercent = volTotal > 0 ? (askVolume / volTotal) * 100 : 50;
 
   const isBull = strength > 0.1;
   const isBear = strength < -0.1;
@@ -28,53 +43,54 @@ export default function MarketPanel({ strength, bidAmount, askAmount, symbol }: 
     return amount.toString();
   };
 
+  const formatVolume = (vol: number) => {
+    if (vol >= 10000) return `${(vol / 10000).toFixed(2)}万`;
+    return vol.toString();
+  };
+
+  // 中文习惯：多方=红，空方=绿
+  const BULL_COLOR = '#ef4444';
+  const BEAR_COLOR = '#22c55e';
+
   return (
-    <div className="panel">
-      <h3 className="panel-title">多空强度 {symbol}</h3>
-
-      <div className="strength-gauge">
-        <div className="gauge-value">
-          <span className={valueClass}>{valueText}</span>
+    <div className="panel market-panel">
+      <div className="market-header">
+        <div>
+          <h3 className="panel-title" style={{ margin: '0 0 4px 0' }}>{symbol}</h3>
+          <div className="market-subtitle">多空强度: <span className={valueClass}>{valueText}</span></div>
         </div>
+        {lastPrice !== undefined && (
+          <div className="price-block">
+            <div className={`price-value ${priceChange >= 0 ? 'bull' : 'bear'}`}>
+              {lastPrice.toFixed(2)}
+            </div>
+            <div className={`price-change ${priceChange >= 0 ? 'bull' : 'bear'}`}>
+              {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}
+            </div>
+          </div>
+        )}
+      </div>
 
-        <div className="gauge-bar">
-          {strength > 0 ? (
-            <div
-              className="gauge-fill bull"
-              style={{ width: `${Math.abs(strength) * 50}%` }}
-            />
-          ) : (
-            <div
-              className="gauge-fill bear"
-              style={{ width: `${Math.abs(strength) * 50}%` }}
-            />
-          )}
+      <div className="market-section">
+        <div className="market-labels">
+          <span style={{ color: BULL_COLOR }}>▲ 多方金额 {formatAmount(bidAmount)}</span>
+          <span style={{ color: BEAR_COLOR }}>▼ 空方金额 {formatAmount(askAmount)}</span>
         </div>
-
-        <div className="gauge-labels">
-          <span style={{ color: '#ef4444' }}>空方</span>
-          <span style={{ color: '#9ca3af' }}>0</span>
-          <span style={{ color: '#22c55e' }}>多方</span>
+        <div className="market-bar">
+          <div style={{ width: `${bullAmountPercent}%`, background: BULL_COLOR }} />
+          <div style={{ width: `${bearAmountPercent}%`, background: BEAR_COLOR }} />
         </div>
       </div>
 
-      <div style={{ marginTop: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-          <span style={{ color: '#22c55e' }}>
-            ▲ 多方 {formatAmount(bidAmount)} ({bullPercent.toFixed(1)}%)
-          </span>
-          <span style={{ color: '#ef4444' }}>
-            ▼ 空方 {formatAmount(askAmount)} ({bearPercent.toFixed(1)}%)
-          </span>
+      <div className="market-section">
+        <div className="market-labels">
+          <span style={{ color: BULL_COLOR }}>▲ 多方量 {formatVolume(bidVolume)}</span>
+          <span style={{ color: BEAR_COLOR }}>▼ 空方量 {formatVolume(askVolume)}</span>
         </div>
-        <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden' }}>
-          <div style={{ width: `${bullPercent}%`, background: '#22c55e' }} />
-          <div style={{ width: `${bearPercent}%`, background: '#ef4444' }} />
+        <div className="market-bar thin">
+          <div style={{ width: `${bullVolPercent}%`, background: BULL_COLOR }} />
+          <div style={{ width: `${bearVolPercent}%`, background: BEAR_COLOR }} />
         </div>
-      </div>
-
-      <div style={{ marginTop: 12, fontSize: 12, color: '#6b7280' }}>
-        差值: {diff > 0 ? '+' : ''}{formatAmount(diff)}
       </div>
     </div>
   );
