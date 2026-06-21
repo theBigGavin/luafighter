@@ -337,6 +337,20 @@ html, body {
   border-radius: 6px;
 }
 
+.modal-message {
+  color: #d1d5db;
+  line-height: 1.6;
+  margin: 0 0 8px 0;
+}
+
+.modal-message strong {
+  color: #fff;
+}
+
+.modal-actions .confirm-btn.danger {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+}
+
 /* 观看页面 */
 .watch-room {
   display: flex;

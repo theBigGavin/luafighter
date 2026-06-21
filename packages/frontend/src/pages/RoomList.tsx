@@ -30,6 +30,9 @@ export default function RoomList() {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [newRoom, setNewRoom] = useState({ rom: 'sf2ce', symbol: 'IF2306' });
+  const [stopConfirmRoomId, setStopConfirmRoomId] = useState<string | null>(null);
+  const [isStopping, setIsStopping] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -96,20 +99,30 @@ export default function RoomList() {
     }
   };
 
-  const stopRoom = async (e: React.MouseEvent, roomId: string) => {
+  const stopRoom = (e: React.MouseEvent, roomId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm('确定要结束该房间吗？')) return;
+    setStopError(null);
+    setStopConfirmRoomId(roomId);
+  };
+
+  const confirmStopRoom = async () => {
+    if (!stopConfirmRoomId) return;
+    setIsStopping(true);
+    setStopError(null);
     try {
-      const res = await fetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/rooms/${stopConfirmRoomId}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
+        setStopConfirmRoomId(null);
         await fetchRooms();
       } else {
-        alert('结束房间失败: ' + (data.error || '未知错误'));
+        setStopError(data.error || '结束房间失败');
       }
     } catch (err) {
-      alert('结束房间失败');
+      setStopError('网络错误，请重试');
+    } finally {
+      setIsStopping(false);
     }
   };
 
@@ -235,6 +248,36 @@ export default function RoomList() {
                 disabled={isCreating || hasActiveRoom}
               >
                 {isCreating ? '创建中...' : '创建'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {stopConfirmRoomId && (
+        <div className="modal-overlay" onClick={() => setStopConfirmRoomId(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>结束房间</h2>
+            <p className="modal-message">
+              确定要结束房间 <strong>{stopConfirmRoomId}</strong> 吗？
+              <br />
+              结束后该房间将不可恢复。
+            </p>
+            {stopError && <div className="modal-error">{stopError}</div>}
+            <div className="modal-actions">
+              <button
+                className="cancel-btn"
+                onClick={() => setStopConfirmRoomId(null)}
+                disabled={isStopping}
+              >
+                取消
+              </button>
+              <button
+                className="confirm-btn danger"
+                onClick={confirmStopRoom}
+                disabled={isStopping}
+              >
+                {isStopping ? '结束中...' : '确认结束'}
               </button>
             </div>
           </div>
