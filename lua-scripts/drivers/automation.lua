@@ -266,6 +266,13 @@ end
 
 -- ============ 阶段处理 ============
 
+-- 强制 KOF97 进入 1P vs 2P 单挑模式
+local function forceKof97VsMode()
+  if ROM_NAME ~= "kof97" then return end
+  mem:writeU8(0x10A849, 0x09)
+  mem:writeU8(0x10A858, 0x09)
+end
+
 local function handleAttract()
   if IS_NEOGEO then
     -- Neo Geo：启动后立刻开始脉冲式按键进场，目标是 1P vs 2P
@@ -283,11 +290,13 @@ local function handleAttract()
       -- 为双方投币（等待标题画面稳定后少量投币，避免 CREDITS 暴涨）
       inputCtrl:insertCoin(1)
       inputCtrl:insertCoin(2)
-    elseif cycle >= 40 and cycle < 70 then
+    elseif cycle >= 40 and cycle < 100 then
       -- 双方同时按 Start 进入 1P vs 2P 对战模式
+      -- 同时强制内存标志为单挑模式，确保 2P 稳定加入
+      forceKof97VsMode()
       inputCtrl:pressStart(1)
       inputCtrl:pressStart(2)
-    elseif cycle >= 80 and cycle < 100 then
+    elseif cycle >= 110 and cycle < 140 then
       -- 确认角色选择（双方同时按 A）
       inputCtrl:press({"BUTTON1"}, 1, 4)
       inputCtrl:press({"BUTTON1"}, 2, 4)

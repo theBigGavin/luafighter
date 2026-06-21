@@ -71,4 +71,12 @@ function MemoryReader:readU32(addr)
   return lo + hi * 65536
 end
 
+function MemoryReader:writeU8(addr, value)
+  local space = getSpace()
+  if not space then return false end
+  local addrNum = hexToNum(addr)
+  local ok = pcall(function() space:write_u8(addrNum, value) end)
+  return ok
+end
+
 return MemoryReader
