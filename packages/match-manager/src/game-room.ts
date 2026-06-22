@@ -53,7 +53,7 @@ export class GameRoom extends EventEmitter {
   ) {
     super();
     this.config = config;
-    this.decisionEngine = new DecisionEngine();
+    this.decisionEngine = new DecisionEngine(config.rom);
 
     this.gameState = {
       roomId: config.roomId,
@@ -143,6 +143,8 @@ export class GameRoom extends EventEmitter {
       status: this.status,
       rom: this.config.rom,
       symbol: this.config.symbol,
+      supportTier: this.config.metadata?.supportTier,
+      controlMode: this.config.metadata?.controlMode,
       gameState: this.gameState,
       uptime: Math.floor((Date.now() - this.lastUpdateTime) / 1000),
     };

@@ -30,8 +30,9 @@ LuaFighter 由三个核心层组成：
           ▼               ▼               ▼
   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
   │ MAME 实例     │ │ Lua 桥接      │ │ 行情数据服务  │
-  │ (sf2ce)       │ │ (ws/file)    │ │ (localhost:9001)│
+  │ (kof97)       │ │ (ws/file)    │ │ (localhost:9001)│
   │ -plugin luafighter│              │                │
+  │ -bios unibios40│ │              │                │
   │ 环境变量传递   │ │              │                │
   │  stdout 事件  │ │              │                │
   └──────────────┘ └──────────────┘ └──────────────┘
@@ -187,7 +188,8 @@ MAME 进程通过环境变量接收配置：
 | `LUAFIGHTER_HOST` | `mame-pool.ts` | WebSocket 目标主机（`localhost`） |
 | `LUAFIGHTER_PORT` | `mame-pool.ts` | WebSocket 目标端口（`10000+`） |
 | `LUAFIGHTER_PATH` | `mame-pool.ts` | 项目根目录（用于 `package.path`） |
-| `DISPLAY` | `mame-pool.ts` | Xvfb 显示编号（`:99`） |
+| `PLUGIN_PATH` | `docker-entry-match-manager.sh` | 合并后的 MAME 插件根目录 |
+| `DISPLAY` | `mame-pool.ts` / `docker-entry-match-manager.sh` | Xvfb 显示编号（`:99`） |
 
 ---
 
@@ -202,8 +204,8 @@ POST /api/rooms
 Content-Type: application/json
 
 {
-  "rom": "sf2ce",
-  "symbol": "IF2306",
+  "rom": "kof97",
+  "symbol": "BTCUSDT",
   "roomId": "room_1"  // 可选，自动生成
 }
 ```
@@ -335,14 +337,19 @@ Content-Type: application/json
 
 **检查**：
 1. `plugins/luafighter/plugin.json` 和 `init.lua` 是否存在
-2. `mame-pool.ts` 的 `-pluginspath` 是否指向正确的 `plugins/` 目录
+2. `-pluginspath` 是否指向的目录同时包含 MAME 官方插件（`boot.lua`、`plugin.schema`）和自定义插件
 3. MAME 日志是否有 `[LuaFighter]` 输出
 
 **解决**：
 ```bash
-# 手动测试 MAME 插件加载
-mame sf2ce -window -pluginspath /abs/path/to/plugins -plugin luafighter -skip_gameinfo
+# 手动测试 MAME 插件加载（需要把自定义插件放到包含官方插件的目录中）
+rm -rf /tmp/mame-plugins
+cp -r /usr/share/games/mame/plugins /tmp/mame-plugins
+cp -r /abs/path/to/plugins/* /tmp/mame-plugins/
+mame kof97 -window -pluginspath /tmp/mame-plugins -plugin luafighter -bios unibios40 -skip_gameinfo
 ```
+
+Docker 部署时，`scripts/docker-entry-match-manager.sh` 已自动完成上述合并步骤，并通过 `PLUGIN_PATH` 环境变量传给 `mame-pool.ts`。
 
 ### 问题：Lua 无法连接后端
 
@@ -419,6 +426,8 @@ mame sf2ce -debug
 ## 参考
 
 - [MAME 0.288 兼容性指南](mame-0.288-compatibility.md)
+- [KOF97 校准与部署笔记](kof97-calibration.md)
+- [ROM 支持级别](rom-support-tiers.md)
 - [MAME Lua 文档](https://docs.mamedev.org/debugger/luaengine.html)
 - [Socket.IO 文档](https://socket.io/docs/)
 - [MediaMTX 文档](https://github.com/bluenviron/mediamtx)

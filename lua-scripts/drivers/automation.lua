@@ -42,9 +42,12 @@ local JSON = require("utils.json")
 local MemoryReader = require("utils.memory-reader")
 local InputController = require("utils.input-controller")
 local WebSocket = require("utils.websocket")
+local PhaseDetectors = require("utils.phase-detectors")
+local FtgAiArena = require("drivers.ftg-ai-arena")
+local EntryKof97 = require("drivers.entry-kof97")
 
 -- ============ 配置 ============
-local ROM_NAME = os.getenv("LUAFIGHTER_ROM") or "sf2ce"
+local ROM_NAME = os.getenv("LUAFIGHTER_ROM") or "kof97"
 local ROOM_ID = os.getenv("LUAFIGHTER_ROOM") or "room1"
 local WS_HOST = os.getenv("LUAFIGHTER_HOST") or "localhost"
 local WS_PORT = tonumber(os.getenv("LUAFIGHTER_PORT")) or 10000
@@ -88,20 +91,14 @@ local IS_NEOGEO = romConfig.platform == "neogeo"
 local MAX_HEALTH = romConfig.maxHealth or 144
 
 -- ============ 状态常量 ============
-local PHASE = {
-  ATTRACT = "attract",
-  SELECT = "select",
-  LOADING = "loading",
-  FIGHT = "fight",
-  KO = "ko",
-  WIN = "win",
-  UNKNOWN = "unknown",
-}
+local PHASE = PhaseDetectors.PHASE
 
 -- ============ 全局状态 ============
 local mem = MemoryReader.new()
 local inputCtrl = InputController.new(romConfig)
 local ws = WebSocket.new(WS_HOST, WS_PORT, ROOM_ID)
+local ftgAi = FtgAiArena.new(romConfig, mem, inputCtrl)
+local entryKof97 = IS_NEOGEO and EntryKof97.new(romConfig, mem, inputCtrl) or nil
 
 -- CPS1 投币计数器注入 (0x800030)
 local coinInjectActive = false
@@ -142,6 +139,9 @@ local p2Wins = 0
 local gameEnded = false
 local koDetected = false
 local started = false
+local fightStartFrame = 0
+local koConfirmFrames = 0
+local phaseDetector = IS_NEOGEO and PhaseDetectors.newNeoGeo(romConfig, mem) or PhaseDetectors.newCps1(romConfig, mem)
 
 -- 策略缓存（按玩家）
 local currentStrategy = { [1] = nil, [2] = nil }
@@ -192,64 +192,9 @@ local function readHealth()
   return p1 or 0, p2 or 0
 end
 
-local function readGameState()
-  local rawValue = readU8(romConfig.stateAddress)
-  local values = romConfig.stateValues or {}
-  -- SF2CE CPS1 状态值（基于 MAME 0.288 实测）
-  -- 将常见过渡/闲置状态统一归类，避免 unknown 抖动
-  if rawValue == (values.attract or 0)
-      or rawValue == (values.title or 0)
-      or rawValue == 1
-      or rawValue == 3
-      or rawValue == 17
-      or rawValue == 23 then
-    return PHASE.ATTRACT
-  elseif rawValue == (values.select or 60)
-      or rawValue == (values.loading or 60) then
-    return PHASE.SELECT
-  elseif rawValue == (values.fight or 2)
-      or rawValue == (values.fight2 or 22)
-      or rawValue == (values.fight3 or 21)
-      or rawValue == 33 then
-    return PHASE.FIGHT
-  elseif rawValue == (values.ko or 21)
-      or rawValue == (values.win or 21)
-      or rawValue == (values.idle or 21) then
-    return PHASE.WIN
-  else
-    -- 一次性调试：输出未识别的状态值和配置
-    if not _stateDebugDone then
-      _stateDebugDone = true
-      debugLog(string.format("[StateDebug] raw=0x%02X values=%s", rawValue, JSON.encode(values)))
-    end
-    return PHASE.UNKNOWN
-  end
-end
-
--- Neo Geo 阶段检测（KOF97）：通过时间和血量判断
-local function detectNeoGeoPhase()
-  local time = readU8(romConfig.stateAddress)
-  local hp1, hp2 = readHealth()
-  -- 对战阶段：倒计时在 1~96 之间且双方有血
-  if time > 0 and time <= 96 and hp1 > 0 and hp2 > 0 then
-    return PHASE.FIGHT
-  end
-  -- 选人/标题/加载：倒计时为 0 且双方血量都是 0（内存未初始化）
-  if time == 0 and hp1 == 0 and hp2 == 0 then
-    return PHASE.ATTRACT
-  end
-  -- 回合结束：倒计时为 0 且至少一方有血（胜负已分）
-  if time == 0 then
-    return PHASE.KO
-  end
-  return PHASE.UNKNOWN
-end
-
 local function detectPhase()
-  if IS_NEOGEO then
-    return detectNeoGeoPhase()
-  end
-  return readGameState()
+  local phase, meta = phaseDetector.detect(frameCount, fightStartFrame)
+  return phase, meta
 end
 
 local function sendEvent(eventData)
@@ -266,45 +211,20 @@ end
 
 -- ============ 阶段处理 ============
 
--- 强制 KOF97 进入 1P vs 2P 单挑模式
-local function forceKof97VsMode()
-  if ROM_NAME ~= "kof97" then return end
-  mem:writeU8(0x10A849, 0x09)
-  mem:writeU8(0x10A858, 0x09)
-end
-
 local function handleAttract()
   if IS_NEOGEO then
-    -- Neo Geo：启动后立刻开始脉冲式按键进场，目标是 1P vs 2P
-    if frameCount < STARTUP_DELAY then return end
-    local elapsed = frameCount - STARTUP_DELAY
-    if elapsed >= NEOGEO_ENTRY_DURATION then
-      return
-    end
-    if not started then
-      started = true
-      debugLog("[Automation] Neo Geo 进场序列启动（1P vs 2P）")
-    end
-    local cycle = elapsed % 300
-    if elapsed >= 120 and elapsed < 720 and cycle == 0 then
-      -- 为双方投币（等待标题画面稳定后少量投币，避免 CREDITS 暴涨）
-      inputCtrl:insertCoin(1)
-      inputCtrl:insertCoin(2)
-    elseif cycle >= 40 and cycle < 100 then
-      -- 双方同时按 Start 进入 1P vs 2P 对战模式
-      -- 同时强制内存标志为单挑模式，确保 2P 稳定加入
-      forceKof97VsMode()
-      inputCtrl:pressStart(1)
-      inputCtrl:pressStart(2)
-    elseif cycle >= 110 and cycle < 140 then
-      -- 确认角色选择（双方同时按 A）
-      inputCtrl:press({"BUTTON1"}, 1, 4)
-      inputCtrl:press({"BUTTON1"}, 2, 4)
+    -- KOF97 使用独立的确定性进场状态机
+    if entryKof97 then
+      entryKof97:update(frameCount)
+      if entryKof97:isFight() and not started then
+        started = true
+        debugLog("[Automation] KOF97 进场状态机报告已进入对战")
+      end
     end
     return
   end
 
-  -- CPS1：等待 attract demo 结束后的标题画面阶段
+  -- CPS1：等待 attract demo 结束后的标题画面阶段（实验性，不保证成功）
   if frameCount < ATTRACT_END_FRAME then
     return
   end
@@ -344,13 +264,15 @@ local function handleAttract()
 end
 
 local function handleSelect()
-  -- 选人阶段：双方同时按确认键选择固定角色
-  if frameCount % 120 < 10 then
-    inputCtrl:press({"BUTTON1"}, 1, 10)
-    inputCtrl:press({"BUTTON1"}, 2, 10)
-    if frameCount % 120 == 0 then
-      debugLog(string.format("[Automation] 选人: 双方同时按确认 @ F%d", frameCount))
-    end
+  -- KOF97 的选人由 entry-kof97.lua 统一处理，避免随机移动光标干扰 2P 加入/确认
+  if IS_NEOGEO and entryKof97 and not entryKof97:isFight() then
+    return
+  end
+
+  -- 其他 ROM：使用 FTG AI 的随机选人辅助（随机移动光标 + 确认）
+  ftgAi:randomSelect(frameCount)
+  if frameCount % 120 == 0 then
+    debugLog(string.format("[Automation] 选人: 随机移动并确认 @ F%d", frameCount))
   end
 end
 
@@ -361,144 +283,83 @@ local function handleLoading()
   end
 end
 
--- 根据策略倾向生成输入
-local function applyStrategy(player, strategy)
-  if not strategy or not strategy.moveTendency then
-    return false
-  end
-
-  local mt = strategy.moveTendency
-  local otherX = player == 1 and p2X or p1X
-  local myX = player == 1 and p1X or p2X
-  local distance = math.abs(p1X - p2X)
-  local attackDistance = romConfig.attackDistance or 50
-
-  -- 动作风格覆盖
-  if strategy.action == "aggressive" then
-    -- 进攻：优先接近并攻击
-    if myX < otherX then
-      inputCtrl:setDirection(player, "right")
-    else
-      inputCtrl:setDirection(player, "left")
-    end
-    if distance < attackDistance and frameCount % 30 == (player - 1) * 15 then
-      inputCtrl:attack(player, "BUTTON1", 6)
-    end
-  elseif strategy.action == "defensive" then
-    -- 防守：拉开距离，偶尔攻击
-    if myX < otherX then
-      inputCtrl:setDirection(player, "left")
-    else
-      inputCtrl:setDirection(player, "right")
-    end
-    if distance < attackDistance and frameCount % 30 == (player - 1) * 15 then
-      inputCtrl:attack(player, "BUTTON2", 6)
-    end
-  else
-    -- 中性：按概率采样移动方向
-    local r = math.random()
-    if r < mt.forward then
-      if myX < otherX then
-        inputCtrl:setDirection(player, "right")
-      else
-        inputCtrl:setDirection(player, "left")
-      end
-    elseif r < mt.forward + mt.backward then
-      if myX < otherX then
-        inputCtrl:setDirection(player, "left")
-      else
-        inputCtrl:setDirection(player, "right")
-      end
-    elseif r < mt.forward + mt.backward + mt.jump then
-      inputCtrl:press({"UP"}, player, 6)
-    elseif r < mt.forward + mt.backward + mt.jump + mt.crouch then
-      inputCtrl:press({"DOWN"}, player, 6)
-    end
-
-    if distance < attackDistance and frameCount % 30 == (player - 1) * 15 then
-      inputCtrl:attack(player, "BUTTON1", 6)
-    end
-  end
-
-  -- 特殊招式
-  if strategy.specialMove and romConfig.combos and romConfig.combos[strategy.specialMove] then
-    local combo = romConfig.combos[strategy.specialMove]
-    for _, step in ipairs(combo) do
-      inputCtrl:press(step.buttons, player, step.duration or 6)
-    end
-  end
-
-  return true
-end
-
-local function defaultAI(player)
-  local distance = math.abs(p1X - p2X)
-  local otherX = player == 1 and p2X or p1X
-  local myX = player == 1 and p1X or p2X
-  local attackDistance = romConfig.attackDistance or 50
-
-  -- 接近对手
-  if myX < otherX then
-    inputCtrl:setDirection(player, "right")
-  else
-    inputCtrl:setDirection(player, "left")
-  end
-
-  -- 距离近时攻击
-  if distance < attackDistance and frameCount % 30 == (player - 1) * 15 then
-    inputCtrl:attack(player, "BUTTON1", 6)
-  end
-
-  -- 偶尔跳跃
-  if frameCount % 180 == (player - 1) * 90 then
-    inputCtrl:press({"UP"}, player, 6)
-  end
-end
+-- 对战阶段 AI 已迁移到 ftg-ai-arena.lua（帧级状态机 + 状态锁定）
 
 local function handleFight()
-  -- 应用策略或默认 AI
-  for player = 1, 2 do
-    local applied = applyStrategy(player, currentStrategy[player])
-    if not applied then
-      defaultAI(player)
+  -- 使用 FTG AI Arena 帧级状态机：移动/防御/攻击/必杀
+  ftgAi:updateFrame(frameCount)
+
+  -- 临时调试：对战前 3 秒强制 P2 向左移动，验证 P2 是否受人控
+  local inFightFor = frameCount - fightStartFrame
+  if inFightFor >= 0 and inFightFor < 180 then
+    inputCtrl:setDirection(2, "left")
+    if frameCount % 30 == 0 then
+      debugLog(string.format("[Automation] DEBUG force P2 left @ F%d P2X=%d", frameCount, p2X or 0))
     end
   end
 
-  -- 检测 KO
-  if not koDetected then
-    if p1Health <= 0 or p2Health <= 0 then
-      koDetected = true
-      local winner = (p1Health <= 0) and 2 or 1
-      if winner == 1 then p1Wins = p1Wins + 1 else p2Wins = p2Wins + 1 end
+  -- 检测 KO：至少进入对战 60 帧后再判定，避免进场/加载阶段的误触发
+  if koDetected then return end
+  if inFightFor < 60 then return end
 
+  local stateVal = readU8(romConfig.stateAddress)
+  local sv = romConfig.stateValues or {}
+  local koState = sv.ko or 10
+  local winState = sv.win or 11
+
+  local function declareRoundEnd(winner)
+    if winner == 1 then p1Wins = p1Wins + 1 else p2Wins = p2Wins + 1 end
+    koDetected = true
+    koConfirmFrames = 0
+    sendEvent({
+      event = "round_end",
+      winner = winner,
+      round = roundCount,
+      p1Health = p1Health,
+      p2Health = p2Health,
+    })
+    debugLog(string.format("[Automation] Round %d 结束，胜者 P%d (%d-%d)", roundCount, winner, p1Wins, p2Wins))
+    if p1Wins >= 2 or p2Wins >= 2 then
+      gameEnded = true
       sendEvent({
-        event = "round_end",
+        event = "game_end",
         winner = winner,
-        round = roundCount,
-        p1Health = p1Health,
-        p2Health = p2Health,
+        p1Wins = p1Wins,
+        p2Wins = p2Wins,
       })
-
-      debugLog(string.format("[Automation] Round %d 结束，胜者 P%d (%d-%d)", roundCount, winner, p1Wins, p2Wins))
-
-      if p1Wins >= 2 or p2Wins >= 2 then
-        gameEnded = true
-        sendEvent({
-          event = "game_end",
-          winner = winner,
-          p1Wins = p1Wins,
-          p2Wins = p2Wins,
-        })
-        debugLog(string.format("[Automation] 对局结束，最终胜者 P%d", winner))
-      end
+      debugLog(string.format("[Automation] 对局结束，最终胜者 P%d", winner))
     end
+  end
+
+  -- 状态字节明确报 KO/Win 且有一方血量归零（或血量锁定模式）
+  if stateVal == koState or stateVal == winState then
+    if p1Health <= 0 then
+      declareRoundEnd(2)
+    elseif p2Health <= 0 then
+      declareRoundEnd(1)
+    elseif romConfig.lockHealth then
+      -- 血量锁定模式下无法从血量判断胜者，暂不统计，等阶段切换
+      koDetected = true
+      return
+    end
+  end
+
+  -- 血量归零需连续多帧确认，避免内存读取抖动导致误判
+  if p1Health <= 0 or p2Health <= 0 then
+    koConfirmFrames = koConfirmFrames + 1
+  else
+    koConfirmFrames = 0
+  end
+  if koConfirmFrames >= 6 then
+    local winner = (p1Health <= 0) and 2 or 1
+    declareRoundEnd(winner)
   end
 end
 
 local function handleRoundEnd()
   -- 回合/对局结束画面：等待一段时间后重置以开始下一回合
   if frameCount % 60 == 0 then
-    debugLog(string.format("[Automation] 回合结束画面 Phase=%s P1HP=%d P2HP=%d", currentPhase, p1Health, p2Health))
+    debugLog(string.format("[Automation] 回合结束画面 Phase=%s P1HP=%d P2HP=%d state=0x%02X", currentPhase, p1Health, p2Health, readU8(romConfig.stateAddress) or 0))
   end
 
   -- 如果游戏已结束，保持不动；否则等待自动进入下一回合
@@ -508,6 +369,12 @@ local function handleRoundEnd()
       koDetected = false
       roundCount = roundCount + 1
       debugLog(string.format("[Automation] 进入 Round %d", roundCount))
+    end
+
+    -- KOF97 team battle: KO state -> next character loads automatically
+    -- When phase transitions back to FIGHT, the next round/character has started
+    if IS_NEOGEO and currentPhase == PHASE.FIGHT then
+      koDetected = false
     end
   end
 end
@@ -536,6 +403,9 @@ emu.register_periodic(function()
     while msg do
       if msg.command == "set_strategy" then
         currentStrategy[msg.player] = msg
+        ftgAi:setStrategy(msg.player, msg, frameCount)
+        debugLog(string.format("[Automation] 收到策略 player=%d action=%s special=%s",
+          msg.player or 0, tostring(msg.action), tostring(msg.specialMove)))
       elseif msg.command == "input" then
         inputCtrl:press(msg.buttons, msg.player, msg.duration or 6)
       elseif msg.command == "combo" then
@@ -558,14 +428,8 @@ emu.register_periodic(function()
   p1X = readS16(romConfig.p1XAddr)
   p2X = readS16(romConfig.p2XAddr)
 
-  -- 读取并更新游戏阶段（多数表决平滑 + 血量辅助）
-  local newPhase = detectPhase()
-  -- 血量非零时优先视为对战（SF2CE attract demo 也符合此规律）
-  if not IS_NEOGEO and (p1Health > 0 or p2Health > 0) then
-    if newPhase == PHASE.UNKNOWN or newPhase == PHASE.ATTRACT then
-      newPhase = PHASE.FIGHT
-    end
-  end
+  -- 读取并更新游戏阶段（多数表决平滑）
+  local newPhase, _ = detectPhase()
   table.insert(phaseHistory, 1, newPhase)
   if #phaseHistory > PHASE_HISTORY_SIZE then table.remove(phaseHistory) end
   local smoothedPhase = getMajorityPhase()
@@ -575,9 +439,11 @@ emu.register_periodic(function()
     sendEvent({ event = "phase_change", phase = currentPhase })
     debugLog(string.format("[Automation] 阶段切换: %s", currentPhase))
 
-    -- 进入对战阶段时重置 KO 标记
+    -- 进入对战阶段时重置 KO 标记并记录对战开始帧
     if currentPhase == PHASE.FIGHT then
       koDetected = false
+      koConfirmFrames = 0
+      fightStartFrame = frameCount
     end
   end
 

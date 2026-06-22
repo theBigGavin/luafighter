@@ -27,7 +27,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.base
     container_name: luafighter-manager
-    command: ["bash", "-c", "mkdir -p /tmp/pulse && rm -f /tmp/pulse/pid /tmp/pulse/native && Xvfb :99 -ac -screen 0 640x480x24 & PULSE_RUNTIME_PATH=/tmp/pulse pulseaudio --start --exit-idle-time=-1 && sleep 1 && PULSE_RUNTIME_PATH=/tmp/pulse pactl load-module module-null-sink sink_name=luafighter sink_properties=device.description=LuaFighter && node packages/match-manager/dist/index.js"]
+    command: ["bash", "/app/scripts/docker-entry-match-manager.sh"]
     ports:
       - "9003:9003"   # HTTP API
       - "9004:9004"   # Socket.IO
@@ -35,15 +35,14 @@ services:
       - NODE_ENV=production
       - ROMS_DIR=/app/roms
       - LUA_SCRIPT_PATH=/app/lua-scripts/drivers/automation.lua
-      - DISPLAY=:99
-      - PULSE_SINK=luafighter
-      - PULSE_RUNTIME_PATH=/tmp/pulse
       - MARKET_WS_HOST=market-data
       - MEDIA_STREAMER_HOST=media-streamer
     volumes:
       - ../roms:/app/roms:ro
       - ../lua-scripts:/app/lua-scripts:ro
       - ../plugins:/app/plugins:ro
+      - ../scripts:/app/scripts:ro
+      - ../cfg:/app/cfg
       - x11-sock:/tmp/.X11-unix
       - pulse-sock:/tmp/pulse
     depends_on:

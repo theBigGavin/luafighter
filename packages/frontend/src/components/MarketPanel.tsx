@@ -87,7 +87,7 @@ export default function MarketPanel({
           <span style={{ color: BULL_COLOR }}>▲ 多方量 {formatVolume(bidVolume)}</span>
           <span style={{ color: BEAR_COLOR }}>▼ 空方量 {formatVolume(askVolume)}</span>
         </div>
-        <div className="market-bar thin">
+        <div className="market-bar">
           <div style={{ width: `${bullVolPercent}%`, background: BULL_COLOR }} />
           <div style={{ width: `${bearVolPercent}%`, background: BEAR_COLOR }} />
         </div>

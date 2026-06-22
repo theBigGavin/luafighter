@@ -173,6 +173,8 @@ export interface RoomConfig {
   symbol: string;        // 绑定的行情代码
   display: string;        // Xvfb display, 如 :99
   streamId: string;       // 推流ID
+  metadata?: RomMetadata; // ROM 支持级别元数据（由 match-manager 加载后注入）
+  bios?: string;          // 可选：MAME BIOS 名称（如 unibios40）
 }
 
 export interface RoomStatus {
@@ -180,6 +182,8 @@ export interface RoomStatus {
   status: 'idle' | 'initializing' | 'running' | 'crashed' | 'stopped';
   rom: string;
   symbol: string;
+  supportTier?: RomSupportTier;
+  controlMode?: RomControlMode;
   gameState: GameState | null;
   uptime: number;
 }
@@ -192,6 +196,7 @@ export interface RomConfig {
   rom: string;            // ROM 名称, 如 sf2ce
   name: string;           // 显示名称
   platform?: string;      // 平台: cps1 | neogeo
+  metadata: RomMetadata;  // ROM 支持级别与控制目标
   stateAddress: string;   // 游戏状态地址 (hex string)
   stateValues: {
     attract?: number;
@@ -208,8 +213,20 @@ export interface RomConfig {
   p2XAddr: string;
   p1YAddr?: string;
   p2YAddr?: string;
+  timeAddr?: string | null;
+  p1StateAddr?: string | null;
+  p2StateAddr?: string | null;
+  p1PowerAddr?: string | null;
+  p2PowerAddr?: string | null;
   maxHealth: number;
   attackDistance?: number; // AI 开始攻击的距离阈值（内部坐标单位）
+  lockTime?: boolean;
+  lockPower?: boolean;
+  lockHealth?: boolean;
+  lockTimeValue?: number | null;
+  lockPowerValue?: number | null;
+  controllableStates?: number[];
+  force2P?: boolean;
   p1InputMap: Record<string, string>;  // logical -> MAME port name
   p2InputMap: Record<string, string>;
   characters: string[];   // 可选角色列表
@@ -229,6 +246,7 @@ export interface RomConfig {
     p2: string;
   };
   neogeoFieldMasks?: Record<string, number>;
+  addressMeta?: Record<string, RomAddressMeta>;
 }
 
 // -----------------------------------
@@ -255,4 +273,47 @@ export const MEDIA_HTTP_PORT = 9005;
 export const LUA_WS_PORT_BASE = 10000;  // 每个 MAME 实例分配一个端口
 
 export const DEFAULT_SYMBOL = 'IF2306';
-export const DEFAULT_ROM = 'sf2ce';
+export const DEFAULT_ROM = 'kof97';
+
+// -----------------------------------
+// ROM 支持级别与元数据
+// -----------------------------------
+
+export type RomSupportTier =
+  | 'stable'            // 已验证，可作为主流程 ROM
+  | 'stable_candidate'  // 主验证 ROM，目标进入 stable
+  | 'experimental'      // 仅用于实验、校准或限制验证
+  | 'unsupported';      // 已知不可控
+
+export type RomControlMode =
+  | 'dual_control_target'   // 目标：1P/2P 均可被外部策略控制
+  | 'single_control_target' // 仅 1P 可控
+  | 'input_experiment_only' // 仅验证输入注入、地址或阶段识别
+  | 'uncontrollable';       // 无法控制
+
+export type RomCalibrationStatus =
+  | 'verified'
+  | 'partial'
+  | 'unverified'
+  | 'unknown';
+
+export type RomPhaseConfidence =
+  | 'high'
+  | 'medium'
+  | 'low'
+  | 'untrusted';
+
+export interface RomAddressMeta {
+  source?: string;            // 来源：cheat xml / debugger / 校准文档
+  verifiedAt?: string;        // ISO 日期
+  confidence?: RomCalibrationStatus;
+  note?: string;
+}
+
+export interface RomMetadata {
+  supportTier: RomSupportTier;
+  controlMode: RomControlMode;
+  phaseConfidence: RomPhaseConfidence;
+  calibrationStatus: RomCalibrationStatus;
+  knownLimitations: string[];
+}

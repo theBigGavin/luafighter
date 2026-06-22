@@ -25,7 +25,7 @@ luafighter/
 ├── AGENTS.md                 # 本文件
 ├── README.md                 # 面向开发者的项目说明（中文）
 ├── plan.md                   # 项目执行计划
-│
+│·
 ├── packages/                 # Node.js monorepo（npm workspaces）
 │   ├── shared-types/         # @luafighter/shared-types：类型定义和端口常量
 │   ├── market-data/          # @luafighter/market-data：行情数据服务

@@ -1,15 +1,29 @@
 {
   "rom": "sf2ce",
   "name": "Street Fighter II: Champion Edition",
+  "metadata": {
+    "supportTier": "experimental",
+    "controlMode": "input_experiment_only",
+    "phaseConfidence": "low",
+    "calibrationStatus": "partial",
+    "knownLimitations": [
+      "CPS1 coin/start 注入在 MAME 0.288 下无效，无法自动进场",
+      "无法稳定区分 attract demo fight 与真实对战",
+      "不承诺双边控制，仅用于输入限制验证、地址校准、阶段识别研究"
+    ]
+  },
   "stateAddress": "0xFF8ABF",
   "stateValues": {
     "attract": 0,
     "title": 0,
     "select": 60,
+    "select2": 59,
     "loading": 60,
     "fight": 2,
     "fight2": 22,
-    "fight3": 21,
+    "fight3": 33,
+    "second_attract": 3,
+    "second_attract2": 17,
     "win": 21,
     "idle": 21
   },
@@ -19,7 +33,28 @@
   "p2XAddr": "0xFF8850",
   "p1YAddr": "0xFF8452",
   "p2YAddr": "0xFF8752",
+  "timeAddr": null,
+  "p1StateAddr": null,
+  "p2StateAddr": null,
+  "p1PowerAddr": null,
+  "p2PowerAddr": null,
   "maxHealth": 144,
+  "lockTimeValue": 99,
+  "lockPowerValue": null,
+  "lockTime": false,
+  "lockPower": false,
+  "lockHealth": false,
+  "controllableStates": [0, 1, 2],
+  "addressMeta": {
+    "stateAddress": { "source": "MAME 0.288 实测 + cps1-input-limitation.md", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "attract=0x00, transition=0x3C, fight=0x02/0x16, idle/win=0x15" },
+    "p1HealthAddr": { "source": "MAME 0.288 实测", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "attract demo 中会从 144 降到 0" },
+    "p2HealthAddr": { "source": "MAME 0.288 实测", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "attract demo 中会从 144 降到 0" },
+    "p1XAddr": { "source": "历史项目配置，待重新校准", "verifiedAt": null, "confidence": "unverified", "note": "可能受 attract/demo 污染" },
+    "p2XAddr": { "source": "历史项目配置，待重新校准", "verifiedAt": null, "confidence": "unverified", "note": "可能受 attract/demo 污染" },
+    "timeAddr": { "source": null, "verifiedAt": null, "confidence": "unknown", "note": "未校准" },
+    "p1StateAddr": { "source": null, "verifiedAt": null, "confidence": "unknown", "note": "未校准" },
+    "p2StateAddr": { "source": null, "verifiedAt": null, "confidence": "unknown", "note": "未校准" }
+  },
   "p1InputMap": {
     "UP": "P1_JOYSTICK_UP",
     "DOWN": "P1_JOYSTICK_DOWN",

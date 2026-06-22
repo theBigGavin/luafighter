@@ -3,10 +3,12 @@ import { Server as SocketIOServer } from 'socket.io';
 import { createServer } from 'http';
 import { WebSocket } from 'ws';
 import path from 'path';
+import fs from 'fs';
 import {
   RoomConfig,
   RoomStatus,
   GameState,
+  RomMetadata,
   MARKET_WS_PORT,
   MANAGER_HTTP_PORT,
   MANAGER_SOCKET_IO_PORT,
@@ -40,8 +42,42 @@ const mamePool = new MamePool({
   poolSize: 8,
   romsDir: process.env.ROMS_DIR || './roms',
   luaScriptPath: process.env.LUA_SCRIPT_PATH || 'lua-scripts/drivers/automation.lua',
+  pluginPath: process.env.LUAFIGHTER_PLUGIN_PATH || path.resolve('./plugins'),
   displayBase: 99,
 });
+
+// 加载 ROM 配置中的支持级别元数据
+function loadRomMetadata(rom: string): RomMetadata | undefined {
+  const configPath = path.resolve(
+    process.env.LUAFIGHTER_ROM_CONFIG_PATH || 'lua-scripts/rom-configs',
+    `${rom}.json`
+  );
+  try {
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const cfg = JSON.parse(raw);
+    if (cfg && cfg.metadata) {
+      return cfg.metadata as RomMetadata;
+    }
+  } catch (err) {
+    console.warn(`[Manager] 无法加载 ROM 配置元数据: ${configPath}`, (err as Error).message);
+  }
+  return undefined;
+}
+
+// 加载 ROM 配置原始对象（用于获取 BIOS 等额外字段）
+function loadRomConfig(rom: string): any {
+  const configPath = path.resolve(
+    process.env.LUAFIGHTER_ROM_CONFIG_PATH || 'lua-scripts/rom-configs',
+    `${rom}.json`
+  );
+  try {
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    return JSON.parse(raw);
+  } catch (err) {
+    console.warn(`[Manager] 无法加载 ROM 配置: ${configPath}`, (err as Error).message);
+    return undefined;
+  }
+}
 
 // ============ HTTP API ============
 
@@ -111,8 +147,24 @@ async function stopStream(roomId: string): Promise<void> {
 async function createRoomFromConfig(config: RoomConfig): Promise<{ success: boolean; roomId: string; config: RoomConfig }> {
   const id = config.roomId;
 
+  // 加载 ROM 元数据并附加到房间配置
+  config.metadata = loadRomMetadata(config.rom);
+  if (config.metadata) {
+    console.log(`[Manager] ROM ${config.rom} 支持级别: ${config.metadata.supportTier}, 控制模式: ${config.metadata.controlMode}`);
+    if (config.metadata.supportTier === 'experimental') {
+      console.warn(`[Manager] 警告: ${config.rom} 是实验 ROM，不保证自动进场或双边控制`);
+    }
+  }
+
+  // 加载 ROM 配置中的 BIOS 设置（用于 Universe BIOS 等可选路径）
+  const romCfg = loadRomConfig(config.rom);
+  config.bios = romCfg?.bios;
+  if (config.bios) {
+    console.log(`[Manager] ROM ${config.rom} 使用 BIOS: ${config.bios}`);
+  }
+
   // 1. 启动 MAME 实例，获取实际分配的 display 和端口
-  const { manager: mameInstance, display } = await mamePool.createInstance(id, config.rom);
+  const { manager: mameInstance, display } = await mamePool.createInstance(id, config.rom, config.bios);
   config.display = display;
   config.streamId = `stream_${id}`;
 

@@ -121,8 +121,12 @@ export default function WatchRoom() {
       <div className="video-section">
         <div className="video-container-wrapper">
           <VideoPlayer webrtcUrl={webrtcUrl} hlsUrl={hlsUrl} roomId={roomId} />
-          <div className="scoreboard-overlay">
-            <ScoreBoard
+          <ConnectionStatus connected={connected} phase={gameState?.phase || 'unknown'} />
+        </div>
+      </div>
+
+      <div className="sidebar">
+        <ScoreBoard
               compact
               p1Hp={gameState?.round?.p1.health || 0}
               p2Hp={gameState?.round?.p2.health || 0}
@@ -134,12 +138,6 @@ export default function WatchRoom() {
               bestOf={gameState?.score.bestOf || 3}
               phase={gameState?.phase || 'unknown'}
             />
-          </div>
-          <ConnectionStatus connected={connected} phase={gameState?.phase || 'unknown'} />
-        </div>
-      </div>
-
-      <div className="sidebar">
         <MarketPanel
           strength={gameState?.marketData?.strengthIndex || 0}
           bidAmount={gameState?.marketData?.bidAmountTotal || 0}

@@ -1,6 +1,17 @@
 {
   "rom": "sf2",
   "name": "Street Fighter II: The World Warrior (街头霸王2)",
+  "metadata": {
+    "supportTier": "experimental",
+    "controlMode": "input_experiment_only",
+    "phaseConfidence": "low",
+    "calibrationStatus": "unverified",
+    "knownLimitations": [
+      "CPS1 coin/start 注入在 MAME 0.288 下无效",
+      "所有关键地址均为占位符，未经验证",
+      "仅用于输入限制复现和地址校准实验"
+    ]
+  },
   "stateAddress": "0xFF8000",
   "stateValues": {
     "attract": 0,
@@ -18,6 +29,20 @@
   "p1YAddr": "0xFF8204",
   "p2YAddr": "0xFF8206",
   "maxHealth": 176,
+  "attackDistance": 50,
+  "lockTime": false,
+  "lockPower": false,
+  "lockHealth": false,
+  "lockTimeValue": 99,
+  "lockPowerValue": null,
+  "controllableStates": [0, 1, 2],
+  "addressMeta": {
+    "stateAddress": { "source": null, "verifiedAt": null, "confidence": "unverified", "note": "占位符 0xFF8000，需重新校准" },
+    "p1HealthAddr": { "source": null, "verifiedAt": null, "confidence": "unverified", "note": "占位符" },
+    "p2HealthAddr": { "source": null, "verifiedAt": null, "confidence": "unverified", "note": "占位符" },
+    "p1XAddr": { "source": null, "verifiedAt": null, "confidence": "unverified", "note": "占位符" },
+    "p2XAddr": { "source": null, "verifiedAt": null, "confidence": "unverified", "note": "占位符" }
+  },
   "p1InputMap": {
     "UP": "P1_JOYSTICK_UP",
     "DOWN": "P1_JOYSTICK_DOWN",
@@ -29,8 +54,8 @@
     "BUTTON4": "P1_BUTTON4",
     "BUTTON5": "P1_BUTTON5",
     "BUTTON6": "P1_BUTTON6",
-    "START": "P1_START",
-    "COIN": "P1_COIN"
+    "START": "P1_START_IN0",
+    "COIN": "P1_COIN_IN0"
   },
   "p2InputMap": {
     "UP": "P2_JOYSTICK_UP",
@@ -43,8 +68,8 @@
     "BUTTON4": "P2_BUTTON4",
     "BUTTON5": "P2_BUTTON5",
     "BUTTON6": "P2_BUTTON6",
-    "START": "P2_START",
-    "COIN": "P2_COIN"
+    "START": "P2_START_IN0",
+    "COIN": "P2_COIN_IN0"
   },
   "characters": [
     "Ryu", "Ken", "Chun-Li", "Guile", "Zangief", "Dhalsim",

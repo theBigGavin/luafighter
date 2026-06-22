@@ -25,8 +25,10 @@ export class DecisionEngine {
   private smoothedStrength: number = 0;
   private strengthHistory: number[] = [];
   private historySize: number = 20;
+  private rom: string;
 
-  constructor(config?: Partial<DecisionConfig>) {
+  constructor(rom?: string, config?: Partial<DecisionConfig>) {
+    this.rom = (rom || '').toLowerCase();
     this.config = {
       aggressiveThreshold: 0.3,
       defensiveThreshold: -0.3,
@@ -35,6 +37,16 @@ export class DecisionEngine {
       randomFactor: 0.15,
       ...config,
     };
+  }
+
+  private pickSpecial(forP1: boolean): string | undefined {
+    if (this.rom.includes('kof97')) {
+      return forP1 ? 'power_wave' : 'rising_tackle';
+    }
+    if (this.rom.includes('sf2')) {
+      return 'hadoken';
+    }
+    return undefined;
   }
 
   /**
@@ -123,9 +135,10 @@ export class DecisionEngine {
     const p2Action = s < this.config.defensiveThreshold ? 'aggressive' : 
                      (s > this.config.aggressiveThreshold ? 'defensive' : 'neutral');
 
-    // 可选特殊招式
-    const p1Special = (Math.random() < 0.1 && s > 0.5) ? 'hadoken' : undefined;
-    const p2Special = (Math.random() < 0.1 && s < -0.5) ? 'hadoken' : undefined;
+    // 可选特殊招式（根据 ROM 选择对应必杀技名称）
+    // 当一方处于 aggressive 风格时，附带对应 ROM 的必杀技；Lua 侧有 90 帧冷却避免连发
+    const p1Special = p1Action === 'aggressive' ? this.pickSpecial(true) : undefined;
+    const p2Special = p2Action === 'aggressive' ? this.pickSpecial(false) : undefined;
 
     return {
       p1: {

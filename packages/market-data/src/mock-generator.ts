@@ -50,6 +50,13 @@ export class MockDataGenerator {
       drift: 0.01,
       volatility: 0.08,
     });
+    this.register({
+      symbol: 'BTCUSDT',
+      scenario: 'volatile',
+      intervalMs: 500,
+      drift: 0.03,
+      volatility: 0.25,
+    });
   }
 
   register(config: GeneratorConfig): void {

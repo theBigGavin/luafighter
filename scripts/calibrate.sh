@@ -16,18 +16,9 @@ fi
 
 # 清理旧日志
 rm -f /tmp/luafighter-calibration.log
-
-BOOT_SCRIPT=$(mktemp /tmp/luafighter-boot-XXXXXX.lua)
-cat > "$BOOT_SCRIPT" << EOF
-package.path = package.path .. ";$PROJECT_DIR/lua-scripts/?.lua"
-local ok, err = pcall(function()
-  require("drivers.calibration")
-end)
-if not ok then
-  local fd = io.open("/tmp/luafighter-calibration.log", "w")
-  if fd then fd:write("BOOT_ERROR: " .. tostring(err) .. "\n"); fd:close() end
-end
-EOF
+export LUAFIGHTER_ROM="$ROM"
+export LUAFIGHTER_ROOM="${LUAFIGHTER_ROOM:-calibration}"
+export LUAFIGHTER_DRIVER="calibration"
 
 echo "=== LuaFighter 内存校准 ==="
 echo "ROM: ${ROM}"
@@ -36,8 +27,9 @@ echo ""
 
 mame "$ROM" \
   -window \
-  \
-  -autoboot_script "$BOOT_SCRIPT" \
+  -rompath "$PROJECT_DIR/roms" \
+  -pluginspath "$PROJECT_DIR/plugins" \
+  -plugin luafighter \
   -sound none \
   2>&1
 

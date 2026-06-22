@@ -41,7 +41,7 @@ export default function ScoreBoard({
 
   if (compact) {
     return (
-      <div className="scoreboard compact">
+      <div className="panel scoreboard compact">
         <div className="scoreboard-header compact-header">
           <div className="scoreboard-title">{phaseText[phase] || phase}</div>
           <div className="round-indicator">Round {round}/{bestOf}</div>

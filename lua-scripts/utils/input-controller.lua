@@ -252,6 +252,51 @@ function InputController:_getField(portIndex, fieldMask)
   return nil
 end
 
+local function setKof97VsModeDip()
+  -- KOF97 的 Cabinet DIP：Normal=2, VS Mode=0（mask=2）
+  -- MAME ioport tag 通常带前导冒号，如 :DSW
+  local tags = {":DSW", "DSW"}
+  local port, field
+  for _, tag in ipairs(tags) do
+    local ok, p = pcall(function() return manager.machine.ioport.ports[tag] end)
+    if ok and p then
+      port = p
+      for fname, f in pairs(port.fields) do
+        if fname:lower() == "cabinet" then
+          field = f
+          break
+        end
+      end
+      if field then break end
+    end
+  end
+
+  if not port then
+    -- 诊断：列出所有 port tag，方便定位 DSW
+    local tagsList = {}
+    local okPorts, ports = pcall(function() return manager.machine.ioport.ports end)
+    if okPorts and ports then
+      for tag, _ in pairs(ports) do table.insert(tagsList, tag) end
+    end
+    logMsg("[InputController] KOF97 DSW port 未找到，已知 ports: " .. table.concat(tagsList, ","))
+    return
+  end
+
+  if not field then
+    local names = {}
+    for fname, _ in pairs(port.fields) do table.insert(names, fname) end
+    logMsg("[InputController] KOF97 DSW port 找到但无 Cabinet field，fields: " .. table.concat(names, ","))
+    return
+  end
+
+  local setOk = pcall(function() field:set_value(0) end)
+  if setOk then
+    logMsg("[InputController] KOF97 Cabinet DIP 已设为 VS Mode")
+  else
+    logMsg("[InputController] KOF97 Cabinet DIP 设置失败")
+  end
+end
+
 function InputController:initPorts()
   local machine = manager.machine
   if not machine or not machine.ioport then
@@ -266,11 +311,22 @@ function InputController:initPorts()
     local ports = self.config and self.config.neogeoInputPorts
     if ports then
       local ok = true
-      for _, tag in pairs({ports.coin, ports.start, ports.p1, ports.p2}) do
+      for name, tag in pairs({coin=ports.coin, start=ports.start, p1=ports.p1, p2=ports.p2}) do
         local portOk, port = pcall(function() return machine.ioport.ports[tag] end)
-        if not portOk or not port then ok = false; break end
+        if not portOk or not port then ok = false
+        else
+          local fieldNames = {}
+          for fname, _ in pairs(port.fields) do
+            table.insert(fieldNames, fname)
+          end
+          logMsg(string.format("[InputController] NeoGeo port %s (%s) fields: %s", name, tag, table.concat(fieldNames, ",")))
+        end
       end
       if ok then
+        -- 确认 KOF97 的 Cabinet DIP 为 VS Mode，保证 1P vs 2P
+        if self.config.rom and (self.config.rom):lower():find("kof97") then
+          setKof97VsModeDip()
+        end
         self.portsInitialized = true
         return true
       end
@@ -511,11 +567,26 @@ function InputController:setDirection(player, direction)
   local playerStr = player == 1 and "p1" or "p2"
   local map = self.inputMap[playerStr]
 
+  -- 调试：方向变化时打印一次（避免每帧刷屏）
+  if self._platform == "neogeo" then
+    self._lastDirection = self._lastDirection or {}
+    if self._lastDirection[player] ~= direction then
+      logMsg(string.format("[InputController] P%d setDirection=%s -> portNames L=%s R=%s U=%s D=%s",
+        player, tostring(direction),
+        tostring(map.LEFT), tostring(map.RIGHT), tostring(map.UP), tostring(map.DOWN)))
+      self._lastDirection[player] = direction
+    end
+  end
+
   -- 先释放该玩家所有方向键
   for _, dir in ipairs({"UP", "DOWN", "LEFT", "RIGHT"}) do
     local portName = map[dir]
     if portName then
-      self:_releaseByName(portName)
+      if self._platform == "neogeo" then
+        self:clearPersistent(portName)
+      else
+        self:_releaseByName(portName)
+      end
     end
   end
 
@@ -533,7 +604,11 @@ function InputController:setDirection(player, direction)
   for _, dir in ipairs(dirs) do
     local portName = map[dir]
     if portName then
-      self:_pressByName(portName, 999)
+      if self._platform == "neogeo" then
+        self:setPersistent(portName)
+      else
+        self:_pressByName(portName, 999)
+      end
     end
   end
 end

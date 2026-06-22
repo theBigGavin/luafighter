@@ -50,6 +50,15 @@ recordings/
 *.mp4
 recordings/*.ts
 
+# MAME 运行时产物
+nvram/
+snap/
+cfg/
+
+# 环境/工具临时文件
+cookies.txt
+.agents/
+
 # 测试覆盖
 coverage/
 .nyc_output/

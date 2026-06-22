@@ -2,6 +2,9 @@
   "plugin": {
     "name": "luafighter",
     "description": "LuaFighter automation plugin",
-    "type": "plugin"
+    "version": "1.0.0",
+    "author": "LuaFighter",
+    "type": "plugin",
+    "start": "false"
   }
 }

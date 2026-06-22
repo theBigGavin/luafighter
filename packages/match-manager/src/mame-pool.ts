@@ -26,9 +26,11 @@ interface MameConfig {
   wsPort: number;
   roomId: string;
   luaScriptPath: string;
+  pluginPath: string;
   romsDir: string;
   windowed: boolean;
   soundEnabled: boolean;
+  bios?: string;
 }
 
 /**
@@ -75,6 +77,7 @@ export class MameProcessManager {
         LUAFIGHTER_ROOM: this.config.roomId,
         LUAFIGHTER_HOST: 'localhost',
         LUAFIGHTER_PORT: this.config.wsPort.toString(),
+        LUAFIGHTER_PATH: path.resolve(this.config.pluginPath, '..'),
         DISPLAY: this.config.display,
         PULSE_SINK: process.env.PULSE_SINK || 'luafighter',
         PULSE_SERVER: process.env.PULSE_SERVER || 'unix:/tmp/pulse/native',
@@ -145,21 +148,30 @@ export class MameProcessManager {
   }
 
   private buildArgs(): string[] {
+    const pluginPath = process.env.PLUGIN_PATH
+      ? path.resolve(process.env.PLUGIN_PATH)
+      : path.resolve(this.config.pluginPath);
     const args: string[] = [
       this.config.rom,
       '-rompath', path.resolve(this.config.romsDir),
+      '-plugins',
+      '-pluginspath', pluginPath,
+      '-plugin', 'luafighter',
       '-resolution', '640x480',
       '-nokeepaspect',
-      '-noreadconfig',
       '-skip_gameinfo',
-      '-autoboot_script', this.config.luaScriptPath,
       '-verbose',
+      '-cfg_directory', '/app/cfg',
     ];
 
     if (this.config.soundEnabled) {
       args.push('-sound', 'pulse');
     } else {
       args.push('-sound', 'none');
+    }
+
+    if (this.config.bios) {
+      args.push('-bios', this.config.bios);
     }
 
     return args;
@@ -222,21 +234,24 @@ export class MamePool {
   private poolSize: number;
   private romsDir: string;
   private luaScriptPath: string;
+  private pluginPath: string;
   private displayBase: number;
 
   constructor(options: {
     poolSize: number;
     romsDir: string;
     luaScriptPath: string;
+    pluginPath: string;
     displayBase?: number;
   }) {
     this.poolSize = options.poolSize;
     this.romsDir = options.romsDir;
     this.luaScriptPath = options.luaScriptPath;
+    this.pluginPath = options.pluginPath;
     this.displayBase = options.displayBase || 99;
   }
 
-  async createInstance(roomId: string, rom: string): Promise<{ manager: MameProcessManager; display: string; wsPort: number }> {
+  async createInstance(roomId: string, rom: string, bios?: string): Promise<{ manager: MameProcessManager; display: string; wsPort: number }> {
     const displayNum = this.displayBase + this.instances.size;
     const display = `:${displayNum}`;
     const wsPort = LUA_WS_PORT_BASE + displayNum;
@@ -247,9 +262,11 @@ export class MamePool {
       wsPort,
       roomId,
       luaScriptPath: this.luaScriptPath,
+      pluginPath: this.pluginPath,
       romsDir: this.romsDir,
       windowed: true,
       soundEnabled: true,
+      bios,
     };
 
     const manager = new MameProcessManager(config, {

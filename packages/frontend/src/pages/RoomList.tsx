@@ -6,6 +6,8 @@ interface RoomItem {
   status: 'idle' | 'initializing' | 'running' | 'crashed' | 'stopped';
   rom: string;
   symbol: string;
+  supportTier?: 'stable' | 'stable_candidate' | 'experimental' | 'unsupported';
+  controlMode?: string;
   uptime: number;
 }
 
@@ -13,6 +15,13 @@ const ROM_NAMES: Record<string, string> = {
   sf2: '街头霸王2',
   sf2ce: '超级街霸2X',
   kof97: '拳皇97',
+};
+
+const TIER_LABELS: Record<string, string> = {
+  stable: '已稳定',
+  stable_candidate: '主验证 ROM',
+  experimental: '实验 ROM',
+  unsupported: '不支持',
 };
 
 const SYMBOL_NAMES: Record<string, string> = {
@@ -29,7 +38,7 @@ export default function RoomList() {
   const [showModal, setShowModal] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [newRoom, setNewRoom] = useState({ rom: 'sf2ce', symbol: 'IF2306' });
+  const [newRoom, setNewRoom] = useState({ rom: 'kof97', symbol: 'IF2306' });
   const [stopConfirmRoomId, setStopConfirmRoomId] = useState<string | null>(null);
   const [isStopping, setIsStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -178,6 +187,12 @@ export default function RoomList() {
                 <div>🎮 {getRomName(room.rom)}</div>
                 <div>📈 {getSymbolName(room.symbol)}</div>
                 <div>⏱️ 运行 {formatUptime(room.uptime)}</div>
+                {room.supportTier && (
+                  <div className={`room-tier ${room.supportTier}`}>
+                    {TIER_LABELS[room.supportTier] || room.supportTier}
+                    {room.supportTier === 'experimental' && ' ⚠️'}
+                  </div>
+                )}
               </div>
             </Link>
             <div className="room-card-actions">
@@ -219,10 +234,15 @@ export default function RoomList() {
                 value={newRoom.rom}
                 onChange={(e) => setNewRoom({ ...newRoom, rom: e.target.value })}
               >
-                <option value="sf2">街头霸王2 (sf2)</option>
-                <option value="sf2ce">超级街霸2X (sf2ce)</option>
-                <option value="kof97">拳皇97 (kof97)</option>
+                <option value="kof97">拳皇97 (kof97) - 主验证 ROM</option>
+                <option value="sf2ce">超级街霸2X (sf2ce) - 实验 ROM</option>
+                <option value="sf2">街头霸王2 (sf2) - 实验 ROM</option>
               </select>
+              {['sf2', 'sf2ce'].includes(newRoom.rom) && (
+                <div className="form-warning">
+                  该 ROM 当前仅用于实验，不保证自动进场或双边控制。
+                </div>
+              )}
             </div>
             <div className="form-group">
               <label>行情标的</label>
