@@ -115,6 +115,14 @@ local function buildNeoGeoFieldMap(romConfig)
         fieldName = (prefix == "P1") and "1 Player Start" or "2 Players Start"
       elseif suffix == "COIN" then
         fieldName = (prefix == "P1") and "Coin 1" or "Coin 2"
+      elseif suffix == "A" then
+        fieldName = prefix .. " Button 1"
+      elseif suffix == "B" then
+        fieldName = prefix .. " Button 2"
+      elseif suffix == "C" then
+        fieldName = prefix .. " Button 3"
+      elseif suffix == "D" then
+        fieldName = prefix .. " Button 4"
       end
       map[name] = { portTag = portTag, fieldName = fieldName, mask = mask }
     end
