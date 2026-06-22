@@ -206,6 +206,10 @@ end
 local function resetInjection()
   started = false
   inputCtrl:clearAllPersistent()
+  inputCtrl:resetCpsState()
+  if IS_NEOGEO and entryKof97 then
+    entryKof97:reset()
+  end
   coinInjectActive = false
 end
 
@@ -289,17 +293,9 @@ local function handleFight()
   -- 使用 FTG AI Arena 帧级状态机：移动/防御/攻击/必杀
   ftgAi:updateFrame(frameCount)
 
-  -- 临时调试：对战前 3 秒强制 P2 向左移动，验证 P2 是否受人控
-  local inFightFor = frameCount - fightStartFrame
-  if inFightFor >= 0 and inFightFor < 180 then
-    inputCtrl:setDirection(2, "left")
-    if frameCount % 30 == 0 then
-      debugLog(string.format("[Automation] DEBUG force P2 left @ F%d P2X=%d", frameCount, p2X or 0))
-    end
-  end
-
   -- 检测 KO：至少进入对战 60 帧后再判定，避免进场/加载阶段的误触发
   if koDetected then return end
+  local inFightFor = frameCount - fightStartFrame
   if inFightFor < 60 then return end
 
   local stateVal = readU8(romConfig.stateAddress)
@@ -357,25 +353,13 @@ local function handleFight()
 end
 
 local function handleRoundEnd()
-  -- 回合/对局结束画面：等待一段时间后重置以开始下一回合
+  if gameEnded then
+    resetInjection()
+    return
+  end
+  -- 游戏未结束，等待自动进入下一回合
   if frameCount % 60 == 0 then
     debugLog(string.format("[Automation] 回合结束画面 Phase=%s P1HP=%d P2HP=%d state=0x%02X", currentPhase, p1Health, p2Health, readU8(romConfig.stateAddress) or 0))
-  end
-
-  -- 如果游戏已结束，保持不动；否则等待自动进入下一回合
-  if not gameEnded then
-    -- 简单等待，游戏会自动进入下一回合
-    if currentPhase == PHASE.FIGHT then
-      koDetected = false
-      roundCount = roundCount + 1
-      debugLog(string.format("[Automation] 进入 Round %d", roundCount))
-    end
-
-    -- KOF97 team battle: KO state -> next character loads automatically
-    -- When phase transitions back to FIGHT, the next round/character has started
-    if IS_NEOGEO and currentPhase == PHASE.FIGHT then
-      koDetected = false
-    end
   end
 end
 
@@ -439,11 +423,22 @@ emu.register_periodic(function()
     sendEvent({ event = "phase_change", phase = currentPhase })
     debugLog(string.format("[Automation] 阶段切换: %s", currentPhase))
 
+    -- 回到 attract 阶段时重置 CPS1 tap 状态，确保下一局能重新安装
+    if currentPhase == PHASE.ATTRACT then
+      inputCtrl:resetCpsState()
+      if IS_NEOGEO and entryKof97 then
+        entryKof97:reset()
+      end
+      debugLog("[Automation] Phase -> ATTRACT, state reset")
+    end
+
     -- 进入对战阶段时重置 KO 标记并记录对战开始帧
     if currentPhase == PHASE.FIGHT then
       koDetected = false
       koConfirmFrames = 0
       fightStartFrame = frameCount
+      roundCount = roundCount + 1
+      debugLog(string.format("[Automation] 进入 Round %d", roundCount))
     end
   end
 

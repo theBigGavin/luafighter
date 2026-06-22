@@ -795,6 +795,19 @@ function InputController:clearAllPersistent()
   end
 end
 
+function InputController:resetCpsState()
+  self._cps_taps_installed = false
+  self._cps_state = nil
+  self._main_tap_count = 0
+  self._dsw_tap_count = 0
+  self._framesSinceTap = 0
+  -- 释放所有 active 输入
+  for portName, _ in pairs(activeInputs) do
+    self:_releaseByName(portName)
+  end
+  activeInputs = {}
+end
+
 function InputController:softReset()
   local machine = manager.machine
   if machine and machine.soft_reset then

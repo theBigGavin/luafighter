@@ -63,6 +63,14 @@ function EntryKof97:getState() return self.state end
 function EntryKof97:isFinished() return self.state == STATE.FIGHT end
 function EntryKof97:isFight() return self.state == STATE.FIGHT end
 
+function EntryKof97:reset()
+  self.state = STATE.IDLE
+  self.stateFrame = 0
+  self.cycle = 0
+  self.fallbackToCpu = false
+  debugLog("KOF97 进场状态机已重置")
+end
+
 function EntryKof97:_readBattleSignals()
   local timeAddr = self.config.timeAddr
   local p1HpAddr = self.config.p1HealthAddr
