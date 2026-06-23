@@ -106,7 +106,7 @@ export default function WatchRoom() {
   useEffect(() => {
     if (!roomId) return;
     // HLS 直接访问 mediamtx 的 8888 端口，避免 nginx 代理导致端口丢失
-    const hlsDirectUrl = `http://${window.location.hostname}:8888/hls/live/room_${roomId}/index.m3u8`;
+    const hlsDirectUrl = `http://${window.location.hostname}:8888/live/room_${roomId}/index.m3u8`;
     setHlsUrl(hlsDirectUrl);
     
     fetch(`/api/streams/${roomId}`)
