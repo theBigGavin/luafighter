@@ -24,15 +24,15 @@
   },
   "p1HealthAddr": "0x108238",
   "p2HealthAddr": "0x108438",
-  "p1XAddr": "0x108302",
-  "p2XAddr": "0x108502",
+  "p1XAddr": "0x10811E",
+  "p2XAddr": "0x10831E",
   "timeAddr": "0x10A83A",
   "p1StateAddr": null,
   "p2StateAddr": null,
   "p1PowerAddr": null,
   "p2PowerAddr": null,
   "maxHealth": 103,
-  "attackDistance": 25000,
+  "attackDistance": 200,
   "lockTimeValue": 60,
   "lockPowerValue": 96,
   "lockTime": false,
@@ -211,6 +211,51 @@
     "power_wave": [
       {
         "buttons": [
+          "DOWN"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "DOWN",
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "BUTTON1"
+        ],
+        "duration": 8,
+        "delay": 0
+      }
+    ],
+    "rising_tackle": [
+      {
+        "buttons": [
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "DOWN"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
           "DOWN",
           "RIGHT"
         ],
@@ -221,11 +266,18 @@
         "buttons": [
           "BUTTON1"
         ],
-        "duration": 5,
+        "duration": 8,
         "delay": 0
       }
     ],
-    "rising_tackle": [
+    "dash_attack": [
+      {
+        "buttons": [
+          "LEFT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
       {
         "buttons": [
           "DOWN"
@@ -235,10 +287,125 @@
       },
       {
         "buttons": [
-          "UP",
+          "DOWN",
+          "LEFT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "BUTTON2"
+        ],
+        "duration": 8,
+        "delay": 0
+      }
+    ],
+    "super_special": [
+      {
+        "buttons": [
+          "DOWN"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "DOWN",
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "DOWN"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "DOWN",
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "BUTTON3"
+        ],
+        "duration": 12,
+        "delay": 0
+      }
+    ],
+    "light_combo": [
+      {
+        "buttons": [
           "BUTTON1"
         ],
-        "duration": 5,
+        "duration": 4,
+        "delay": 2
+      },
+      {
+        "buttons": [
+          "BUTTON1"
+        ],
+        "duration": 4,
+        "delay": 2
+      },
+      {
+        "buttons": [
+          "BUTTON1"
+        ],
+        "duration": 6,
+        "delay": 0
+      }
+    ],
+    "jump_attack": [
+      {
+        "buttons": [
+          "UP"
+        ],
+        "duration": 6,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "BUTTON3"
+        ],
+        "duration": 8,
+        "delay": 0
+      }
+    ],
+    "crouch_kick": [
+      {
+        "buttons": [
+          "DOWN"
+        ],
+        "duration": 6,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "BUTTON2"
+        ],
+        "duration": 6,
         "delay": 0
       }
     ]

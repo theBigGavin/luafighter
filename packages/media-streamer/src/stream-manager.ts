@@ -118,10 +118,11 @@ export class FFmpegStreamer {
 
     if (platform === 'darwin') {
       // macOS: 使用 avfoundation 捕获主屏幕
-      // 需要先获取窗口 ID，这里简化为捕获整个屏幕
       inputArgs.push('-f', 'avfoundation');
       inputArgs.push('-i', '1:0'); // 视频:音频
+      inputArgs.push('-r', fps.toString()); // 强制 60fps
       inputArgs.push('-s', `${width}x${height}`);
+      inputArgs.push('-pix_fmt', 'bgr24'); // 原始像素格式，减少转换延迟
     } else {
       // Linux: 使用 x11grab 捕获 Xvfb 显示
       inputArgs.push('-f', 'x11grab');
@@ -141,13 +142,16 @@ export class FFmpegStreamer {
       '-tune', 'zerolatency',
       '-b:v', bitrate,
       '-maxrate', bitrate,
-      '-bufsize', '1000k',
-      '-g', (fps * 2).toString(), // 2秒关键帧间隔
+      '-bufsize', '200k',       // 减小缓冲区，降低延迟累积
+      '-g', '1',                // 每帧都是关键帧，消除 GOP 延迟
+      '-keyint_min', '1',
+      '-sc_threshold', '0',     // 禁用场景切换关键帧，强制固定 GOP
       '-pix_fmt', 'yuv420p',
       '-acodec', 'aac',
       '-b:a', '128k',
       '-ar', '48000',
       '-ac', '2',
+      '-threads', '4',          // 利用多线程加速编码
       '-f', 'flv',
       rtmpUrl,
     ];
@@ -177,10 +181,10 @@ export class StreamManager {
       roomId,
       display,
       rtmpUrl,
-      width: 640,
-      height: 480,
-      fps: 30,
-      bitrate: '2000k',
+      width: 384,              // KOF97 街机原生分辨率
+      height: 224,
+      fps: 60,                 // 街机满帧 60 FPS
+      bitrate: '2500k',        // 适当提高码率适配 60fps
     };
 
     const streamer = new FFmpegStreamer(config, {

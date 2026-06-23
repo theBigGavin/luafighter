@@ -185,6 +185,10 @@ local function readU8(hexStr)
   return mem:readU8(hexStr) or 0
 end
 
+local function readU16(hexStr)
+  return mem:readU16(hexStr) or 0
+end
+
 local function readS16(hexStr)
   return mem:readS16(hexStr) or 0
 end
@@ -424,10 +428,12 @@ emu.register_periodic(function()
   -- 输入控制器每帧更新（释放过期按键）
   inputCtrl:updateFrame()
 
-  -- 读取健康值和位置（使用有符号坐标，处理环绕/负值）
+  -- 读取健康值和位置（KOF97 X坐标尝试readU8，失败则readU16取低8位）
   p1Health, p2Health = readHealth()
-  p1X = readS16(romConfig.p1XAddr)
-  p2X = readS16(romConfig.p2XAddr)
+  p1X = readU8(romConfig.p1XAddr)
+  if p1X == 0 then p1X = readU16(romConfig.p1XAddr) & 0xFF end
+  p2X = readU8(romConfig.p2XAddr)
+  if p2X == 0 then p2X = readU16(romConfig.p2XAddr) & 0xFF end
 
   -- 读取并更新游戏阶段（多数表决平滑，但支持 fastSwitch 快速切换）
   local newPhase, meta = detectPhase()

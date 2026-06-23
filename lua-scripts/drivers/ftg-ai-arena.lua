@@ -89,7 +89,14 @@ end
 
 function FtgAiArena:_readX(player)
   local addr = (player == 1) and self.config.p1XAddr or self.config.p2XAddr
-  return self:_read(addr, 2) or 0
+  if not addr then return 0 end
+  -- KOF97 X坐标可能是1字节值，尝试readU8
+  local ok, val = pcall(self.mem.readU8, self.mem, addr)
+  if ok and val then return val end
+  -- 如果readU8失败，尝试readU16并取低8位
+  ok, val = pcall(self.mem.readU16, self.mem, addr)
+  if ok and val then return val & 0xFF end
+  return 0
 end
 
 -- ============ 状态锁定 ============
@@ -342,7 +349,7 @@ function FtgAiArena:_chooseSpecialForPlayer(player)
 end
 
 function FtgAiArena:_runPlayerAi(player, frameCount)
-  -- 如果该玩家正在放必杀，不覆盖指令（移动/防御由后续帧接管）
+  -- 如果该玩家正在放必杀，不覆盖指令
   if self:isExecutingSpecial(player) then return end
 
   local strategy = self:_getActiveStrategy(player, frameCount)
@@ -351,26 +358,112 @@ function FtgAiArena:_runPlayerAi(player, frameCount)
     return
   end
 
+  local myHp = self:_readHealth(player)
+  local enemyHp = self:_readHealth(player == 1 and 2 or 1)
+  local hpDiff = myHp - enemyHp
   local dist = self:getDistance()
   local attackDist = self.config.attackDistance or 50
   local phase = self.aiTimer % AI_CYCLE_FRAMES
 
+  -- 根据血量差调整策略
+  local isDesperate = hpDiff < -20
+  local isAggressive = hpDiff > -10
+
+  -- 距离远：全力靠近（不攻击，只移动）
   if dist > attackDist then
-    -- 距离远：跑动靠近，不再频繁跳跃（避免跳过头）
     self:moveToward(player)
-  else
-    -- 距离近：攻击主导循环（60帧周期）
-    -- 减少防御和拉开，增加连续攻击时间，解决"瞎跑"
-    if phase < 40 then
-      -- 阶段 1：连续攻击（66.7%时间）— 增加攻击频率
-      self:attack(player, nil)
-    elseif phase < 50 then
-      -- 阶段 2：防御/拉后（16.7%时间）— 减少防御时间
-      self:defend(player)
-    else
-      -- 阶段 3：继续攻击（16.7%时间）
+    return
+  end
+
+  -- 距离中等（8000-12000）：前进+攻击（边走边打）
+  if dist > 8000 then
+    self:moveToward(player)
+    if phase % 5 == 0 then
       self:attack(player, nil)
     end
+    return
+  end
+
+  -- 距离近（<8000）：攻击主导，所有阶段都攻击（不防御）
+  -- 减少防御时间，给双方更多反击机会
+  if phase % 10 == 0 then
+    -- 每10帧尝试一次连招
+    self:_trySpecialMove(player, dist, frameCount, isDesperate)
+  else
+    -- 持续攻击+前进（边走边打）
+    self:moveToward(player)
+    self:attack(player, nil)
+  end
+end
+
+-- 尝试释放特殊技/连招
+function FtgAiArena:_trySpecialMove(player, dist, frameCount, isDesperate)
+  local lastSpecial = self.lastSpecialFrame[player] or 0
+  local cooldown = isDesperate and 30 or 60
+  if (frameCount - lastSpecial) < cooldown then
+    self:attack(player, nil)
+    return
+  end
+
+  local combos = self.config.combos or {}
+  local comboNames = {}
+  for name, _ in pairs(combos) do
+    table.insert(comboNames, name)
+  end
+  if #comboNames == 0 then
+    self:attack(player, nil)
+    return
+  end
+
+  -- 根据距离和策略选择连招
+  local availableCombos = {}
+  for _, name in ipairs(comboNames) do
+    -- 超必杀只在拼命模式且冷却足够时尝试
+    if name == "super_special" then
+      if isDesperate and (frameCount - lastSpecial) >= 90 then
+        table.insert(availableCombos, name)
+      end
+    -- 跳跃攻击在距离适中时
+    elseif name == "jump_attack" then
+      if dist > 5000 and dist < 15000 then
+        table.insert(availableCombos, name)
+      end
+    -- 气功波/升龙在距离较远时
+    elseif name == "power_wave" or name == "rising_tackle" then
+      if dist > 8000 then
+        table.insert(availableCombos, name)
+      end
+    -- 其他连招（light_combo, dash_attack, crouch_kick）在近身时使用
+    else
+      if dist < 12000 then
+        table.insert(availableCombos, name)
+      end
+    end
+  end
+
+  if #availableCombos == 0 then
+    self:attack(player, nil)
+    return
+  end
+
+  -- 随机选择可用连招，拼命模式优先选择高伤害连招
+  local comboName
+  if isDesperate and math.random(1, 10) > 3 then
+    -- 70%概率选择dash_attack或super_special（高伤害）
+    for _, name in ipairs(availableCombos) do
+      if name == "dash_attack" or name == "super_special" then
+        comboName = name
+        break
+      end
+    end
+  end
+  if not comboName then
+    comboName = availableCombos[math.random(1, #availableCombos)]
+  end
+
+  if self:queueSpecial(player, comboName) then
+    self.lastSpecialFrame[player] = frameCount
+    debugLog(string.format("[FTG AI] P%d 释放连招: %s", player, comboName))
   end
 end
 
@@ -411,17 +504,23 @@ end
 -- ============ 选人阶段辅助 ============
 
 function FtgAiArena:randomSelect(frameCount)
-  local cycle = frameCount % 30
+  -- 增强随机选人：更频繁的方向变化 + 随机确认时机
+  local cycle = frameCount % 12  -- 缩短周期，加快选人速度
 
   if cycle == 0 then
     self.input:releaseAll()
-  elseif cycle >= 1 and cycle < 15 then
-    -- 随机方向移动光标
+  elseif cycle >= 1 and cycle < 10 then
+    -- 随机方向移动光标，每帧都随机
     local dirs = { "LEFT", "RIGHT", "UP", "DOWN" }
     self.input:press({ dirs[math.random(1, 4)] }, 1, 2)
     self.input:press({ dirs[math.random(1, 4)] }, 2, 2)
-  elseif cycle == 20 then
-    -- 确认选人
+    -- 20%概率提前确认选人（模拟人类犹豫后决定）
+    if math.random(1, 100) > 80 then
+      self.input:press({ "BUTTON1" }, 1, 3)
+      self.input:press({ "BUTTON1" }, 2, 3)
+    end
+  elseif cycle >= 10 then
+    -- 强制确认选人
     self.input:press({ "BUTTON1" }, 1, 4)
     self.input:press({ "BUTTON1" }, 2, 4)
   end

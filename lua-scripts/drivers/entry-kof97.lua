@@ -23,6 +23,7 @@ local STATE = {
   COIN_WAIT = "coin_wait",
   BOTH_START_PRESS = "both_start_press",
   BOTH_START_WAIT = "both_start_wait",
+  SELECT_RANDOM = "select_random",  -- 新增：随机选人阶段
   A_PRESS = "a_press",
   A_WAIT = "a_wait",
   FIGHT = "fight",
@@ -194,7 +195,7 @@ function EntryKof97:update(frameCount)
   if self.state == STATE.BOTH_START_WAIT then
     -- 使用状态字节检测是否已进入选人
     if stateVal == (sv.select or 4) then
-      self:_setState(STATE.A_PRESS, "state shows select, confirm now")
+      self:_setState(STATE.SELECT_RANDOM, "state shows select, random select now")
       return
     end
     -- 持续补按 A 防止超时
@@ -204,13 +205,40 @@ function EntryKof97:update(frameCount)
     end
     if self.stateFrame >= 60 then
       self:_releaseAll()
-      self:_setState(STATE.A_PRESS, "auto-select + confirm")
+      self:_setState(STATE.SELECT_RANDOM, "auto-select + random")
+    end
+    return
+  end
+
+  if self.state == STATE.SELECT_RANDOM then
+    -- 随机选人阶段：每8帧随机移动光标，15%概率按A确认
+    local directions = {"UP", "DOWN", "LEFT", "RIGHT"}
+    if self.stateFrame % 8 == 0 then
+      local dir1 = directions[math.random(1, 4)]
+      local dir2 = directions[math.random(1, 4)]
+      self:_press({dir1}, 1, 4)
+      self:_press({dir2}, 2, 4)
+      -- 15%概率确认选人
+      if math.random(1, 100) > 85 then
+        self:_press({"BUTTON1"}, 1, 6)
+        self:_press({"BUTTON1"}, 2, 6)
+      end
+    end
+    -- 使用状态字节检测是否已进入 loading/fight
+    if stateVal == (sv.loading or 6) or stateVal == (sv.fight or 8) then
+      self:_releaseAll()
+      self:_setState(STATE.FIGHT, "state shows loading/fight")
+      return
+    end
+    if self.stateFrame >= 180 then
+      self:_releaseAll()
+      self:_setState(STATE.A_WAIT, "random select timeout")
     end
     return
   end
 
   if self.state == STATE.A_PRESS then
-    -- 持续按 A 完成双方选人和确认
+    -- 持续按 A 完成双方选人和确认（后备）
     self:_press({"BUTTON1"}, 1, 10)
     self:_press({"BUTTON1"}, 2, 10)
     -- 使用状态字节检测是否已进入 loading/fight
