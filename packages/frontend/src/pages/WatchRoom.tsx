@@ -102,19 +102,17 @@ export default function WatchRoom() {
     };
   }, [roomId, appendStrength]);
 
-  // 获取播放地址（使用绝对 URL，确保包含当前端口）
+  // 获取播放地址（HLS 直接访问 mediamtx 8888 端口，绕过 nginx 代理）
   useEffect(() => {
     if (!roomId) return;
-    const baseUrl = window.location.origin;
+    // HLS 直接访问 mediamtx 的 8888 端口，避免 nginx 代理导致端口丢失
+    const hlsDirectUrl = `http://${window.location.hostname}:8888/hls/live/room_${roomId}/index.m3u8`;
+    setHlsUrl(hlsDirectUrl);
+    
     fetch(`/api/streams/${roomId}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.webrtcUrl) setWebrtcUrl(data.webrtcUrl);
-        if (data.hlsUrl) {
-          // 将相对路径转换为绝对 URL，确保包含当前 host:port
-          const absoluteHlsUrl = new URL(data.hlsUrl, baseUrl).href;
-          setHlsUrl(absoluteHlsUrl);
-        }
       })
       .catch(console.error);
   }, [roomId]);
