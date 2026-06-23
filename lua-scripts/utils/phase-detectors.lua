@@ -69,54 +69,69 @@ function PhaseDetectors.newNeoGeo(config, mem)
         return PHASE.FIGHT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
       end
 
-      -- 2) stateAddress 辅助判断
-      if stateVal == (sv.fight or 8) or stateVal == 9 then
-        return PHASE.FIGHT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
-      end
-      if stateVal == (sv.ko or 10) then
-        return PHASE.KO, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
-      end
-      if stateVal == (sv.win or 11) then
-        return PHASE.WIN, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
-      end
-      if stateVal == (sv.select or 4) or stateVal == (sv.loading or 6) then
-        return PHASE.SELECT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
-      end
+  -- 状态字节驱动的快速切换：当状态字节明确变化时，立即返回新阶段
+  -- 这 bypass 了 phaseHistory 的多数表决，减少阶段切换延迟
+  local stateFastSwitch = nil
+  if stateVal == (sv.fight or 8) or stateVal == 9 then
+    stateFastSwitch = PHASE.FIGHT
+  elseif stateVal == (sv.ko or 10) then
+    stateFastSwitch = PHASE.KO
+  elseif stateVal == (sv.win or 11) then
+    stateFastSwitch = PHASE.WIN
+  elseif stateVal == (sv.select or 4) then
+    stateFastSwitch = PHASE.SELECT
+  elseif stateVal == (sv.loading or 6) then
+    stateFastSwitch = PHASE.LOADING
+  elseif stateVal == (sv.attract or 0) or stateVal == (sv.title or 1) then
+    stateFastSwitch = PHASE.ATTRACT
+  end
+  
+  -- 如果状态字节明确指示了新阶段，且与当前推断不同，使用状态字节的结果
+  if stateFastSwitch and stateFastSwitch ~= PHASE.UNKNOWN then
+    return stateFastSwitch, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal, fastSwitch = true }
+  end
 
-      -- 3) 选人/排序阶段：倒计时已开始但血量尚未初始化
-      if timeVal > 0 and timeVal <= maxTime and hp1 == 0 and hp2 == 0 then
-        return PHASE.SELECT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
-      end
-
-      -- 4) 时间结束：若已在对战一段时长后时间归零，判为 KO/回合结束；
-      --    否则视为选人/加载等过渡阶段。
-      if timeVal == 0 then
-        local inFightFor = (fightStartFrame and frameCount and frameCount - fightStartFrame) or 0
-        if inFightFor > 60 and (hp1 > 0 or hp2 > 0) then
-          return PHASE.KO, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
-        end
-      end
-
-      -- 5) 吸引/标题/闲置
-      if stateVal == (sv.attract or 0)
-          or stateVal == (sv.title or 1)
-          or stateVal == 2
-          or stateVal == 3 then
-        return PHASE.ATTRACT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
-      end
-
-      -- 6) 没有任何有效对战信号：血量均为 0 且时间为 0 -> 吸引/标题
-      if hp1 == 0 and hp2 == 0 and timeVal == 0 then
-        return PHASE.ATTRACT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
-      end
-
-      return PHASE.UNKNOWN, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
+  -- 3) 选人/排序阶段：倒计时已开始但血量尚未初始化
+  -- 同时检测 LOADING 状态：状态字节为 loading 或有时间但无血量
+  if timeVal > 0 and timeVal <= maxTime and hp1 == 0 and hp2 == 0 then
+    -- 如果状态字节明确是 loading，返回 LOADING；否则返回 SELECT
+    if stateVal == (sv.loading or 6) then
+      return PHASE.LOADING, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
+    else
+      return PHASE.SELECT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
     end
+  end
+
+  -- 4) 时间结束：若已在对战一段时长后时间归零，判为 KO/回合结束；
+  --    否则视为选人/加载等过渡阶段。
+  if timeVal == 0 then
+    local inFightFor = (fightStartFrame and frameCount and frameCount - fightStartFrame) or 0
+    if inFightFor > 60 and (hp1 > 0 or hp2 > 0) then
+      return PHASE.KO, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
+    end
+  end
+
+  -- 5) 吸引/标题/闲置
+  if stateVal == (sv.attract or 0)
+      or stateVal == (sv.title or 1)
+      or stateVal == 2
+      or stateVal == 3 then
+    return PHASE.ATTRACT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
+  end
+
+  -- 6) 没有任何有效对战信号：血量均为 0 且时间为 0 -> 吸引/标题
+  if hp1 == 0 and hp2 == 0 and timeVal == 0 then
+    return PHASE.ATTRACT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
+  end
+
+  return PHASE.UNKNOWN, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
+end
   }
 end
 
 -- CPS1 (SF2CE/SF2) 检测器
 -- 基于状态字节映射；血量>0 时优先视为对战，避免 attract demo 被误判。
+-- 支持状态字节驱动的快速切换（fastSwitch）。
 function PhaseDetectors.newCps1(config, mem)
   local PHASE = PhaseDetectors.PHASE
   local readHealth = makeHealthReader(config, mem)
@@ -132,29 +147,25 @@ function PhaseDetectors.newCps1(config, mem)
         if ok and v ~= nil then rawValue = tonumber(v) or 0 end
       end
 
-      -- 血量非零时优先视为对战
-      if hp1 > 0 or hp2 > 0 then
-        return PHASE.FIGHT, { hp1 = hp1, hp2 = hp2, state = rawValue }
+      -- 状态字节驱动的快速切换：当状态字节明确匹配时，直接返回
+      -- 减少 phaseHistory 多数表决的延迟
+      if rawValue == (sv.fight or 2) or rawValue == (sv.fight2 or 22) or rawValue == (sv.fight3 or 33) then
+        return PHASE.FIGHT, { hp1 = hp1, hp2 = hp2, state = rawValue, fastSwitch = true }
+      elseif rawValue == (sv.select or 60) or rawValue == (sv.select2 or 59) then
+        return PHASE.SELECT, { hp1 = hp1, hp2 = hp2, state = rawValue, fastSwitch = true }
+      elseif rawValue == (sv.loading or 60) then
+        return PHASE.LOADING, { hp1 = hp1, hp2 = hp2, state = rawValue, fastSwitch = true }
+      elseif rawValue == (sv.ko or 21) or rawValue == (sv.win or 21) or rawValue == (sv.idle or 21) then
+        return PHASE.WIN, { hp1 = hp1, hp2 = hp2, state = rawValue, fastSwitch = true }
+      elseif rawValue == (sv.attract or 0) or rawValue == (sv.title or 0)
+          or rawValue == (sv.second_attract or 3) or rawValue == (sv.second_attract2 or 17)
+          or rawValue == 23 then
+        return PHASE.ATTRACT, { hp1 = hp1, hp2 = hp2, state = rawValue, fastSwitch = true }
       end
 
-      if rawValue == (sv.attract or 0)
-          or rawValue == (sv.title or 0)
-          or rawValue == (sv.second_attract or 3)
-          or rawValue == (sv.second_attract2 or 17)
-          or rawValue == 23 then
-        return PHASE.ATTRACT, { hp1 = hp1, hp2 = hp2, state = rawValue }
-      elseif rawValue == (sv.select or 60)
-          or rawValue == (sv.select2 or 59)
-          or rawValue == (sv.loading or 60) then
-        return PHASE.SELECT, { hp1 = hp1, hp2 = hp2, state = rawValue }
-      elseif rawValue == (sv.fight or 2)
-          or rawValue == (sv.fight2 or 22)
-          or rawValue == (sv.fight3 or 33) then
+      -- 兜底：血量非零时优先视为对战（attract demo 可能血量也是 0）
+      if hp1 > 0 or hp2 > 0 then
         return PHASE.FIGHT, { hp1 = hp1, hp2 = hp2, state = rawValue }
-      elseif rawValue == (sv.ko or 21)
-          or rawValue == (sv.win or 21)
-          or rawValue == (sv.idle or 21) then
-        return PHASE.WIN, { hp1 = hp1, hp2 = hp2, state = rawValue }
       end
 
       return PHASE.UNKNOWN, { hp1 = hp1, hp2 = hp2, state = rawValue }

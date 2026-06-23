@@ -161,8 +161,9 @@ local phaseDetector = IS_NEOGEO and PhaseDetectors.newNeoGeo(romConfig, mem) or 
 local currentStrategy = { [1] = nil, [2] = nil }
 
 -- 阶段平滑：记录最近 N 帧的 phase，取多数作为当前 phase
+-- 但支持 fastSwitch：当状态字节明确变化时，立即切换，不等待平滑
 local phaseHistory = {}
-local PHASE_HISTORY_SIZE = 12
+local PHASE_HISTORY_SIZE = 3  -- 减少平滑窗口，从 12 降到 3（约 50ms 延迟）
 local _stateDebugDone = false
 
 local function getMajorityPhase()
@@ -179,6 +180,9 @@ local function getMajorityPhase()
   end
   return best
 end
+
+-- 快速切换：如果最新检测包含 fastSwitch 标志，直接返回
+local lastPhaseMeta = nil
 
 -- 关键时序参数
 local STARTUP_DELAY = 30
@@ -282,8 +286,14 @@ local function handleAttract()
 end
 
 local function handleSelect()
-  -- KOF97 的选人由 entry-kof97.lua 统一处理，避免随机移动光标干扰 2P 加入/确认
-  if IS_NEOGEO and entryKof97 and not entryKof97:isFight() then
+  -- KOF97 的选人由 entry-kof97.lua 统一处理，但在 entry 状态机未进入 FIGHT 时，
+  -- 同时启用 ftgAi:randomSelect 作为后备，加速选人过程
+  if IS_NEOGEO and entryKof97 then
+    if entryKof97:isFight() then
+      return  -- entry 已完成，不需要额外处理
+    end
+    -- entry 尚未完成，同时执行随机选人作为加速后备
+    ftgAi:randomSelect(frameCount)
     return
   end
 
@@ -426,33 +436,63 @@ emu.register_periodic(function()
   p1X = readS16(romConfig.p1XAddr)
   p2X = readS16(romConfig.p2XAddr)
 
-  -- 读取并更新游戏阶段（多数表决平滑）
-  local newPhase, _ = detectPhase()
-  table.insert(phaseHistory, 1, newPhase)
-  if #phaseHistory > PHASE_HISTORY_SIZE then table.remove(phaseHistory) end
-  local smoothedPhase = getMajorityPhase()
-
-  if smoothedPhase ~= currentPhase then
-    currentPhase = smoothedPhase
-    sendEvent({ event = "phase_change", phase = currentPhase })
-    debugLog(string.format("[Automation] 阶段切换: %s", currentPhase))
-
-    -- 回到 attract 阶段时重置 CPS1 tap 状态，确保下一局能重新安装
-    if currentPhase == PHASE.ATTRACT then
-      inputCtrl:resetCpsState()
-      if IS_NEOGEO and entryKof97 then
-        entryKof97:reset()
+  -- 读取并更新游戏阶段（多数表决平滑，但支持 fastSwitch 快速切换）
+  local newPhase, meta = detectPhase()
+  lastPhaseMeta = meta
+  
+  -- fastSwitch：状态字节明确变化时，立即切换，不等待平滑
+  if meta and meta.fastSwitch then
+    if newPhase ~= currentPhase then
+      currentPhase = newPhase
+      sendEvent({ event = "phase_change", phase = currentPhase, fastSwitch = true })
+      debugLog(string.format("[Automation] 阶段快速切换: %s (state=0x%02X)", currentPhase, meta.state or 0))
+      
+      -- 回到 attract 阶段时重置状态
+      if currentPhase == PHASE.ATTRACT then
+        inputCtrl:resetCpsState()
+        if IS_NEOGEO and entryKof97 then
+          entryKof97:reset()
+        end
+        debugLog("[Automation] Phase -> ATTRACT, state reset")
       end
-      debugLog("[Automation] Phase -> ATTRACT, state reset")
+      
+      -- 进入对战阶段时重置 KO 标记并记录对战开始帧
+      if currentPhase == PHASE.FIGHT then
+        koDetected = false
+        koConfirmFrames = 0
+        fightStartFrame = frameCount
+        roundCount = roundCount + 1
+        debugLog(string.format("[Automation] 进入 Round %d (fastSwitch)", roundCount))
+      end
     end
-
-    -- 进入对战阶段时重置 KO 标记并记录对战开始帧
-    if currentPhase == PHASE.FIGHT then
-      koDetected = false
-      koConfirmFrames = 0
-      fightStartFrame = frameCount
-      roundCount = roundCount + 1
-      debugLog(string.format("[Automation] 进入 Round %d", roundCount))
+  else
+    -- 标准平滑：记录历史并多数表决
+    table.insert(phaseHistory, 1, newPhase)
+    if #phaseHistory > PHASE_HISTORY_SIZE then table.remove(phaseHistory) end
+    local smoothedPhase = getMajorityPhase()
+    
+    if smoothedPhase ~= currentPhase then
+      currentPhase = smoothedPhase
+      sendEvent({ event = "phase_change", phase = currentPhase })
+      debugLog(string.format("[Automation] 阶段平滑切换: %s", currentPhase))
+      
+      -- 回到 attract 阶段时重置 CPS1 tap 状态，确保下一局能重新安装
+      if currentPhase == PHASE.ATTRACT then
+        inputCtrl:resetCpsState()
+        if IS_NEOGEO and entryKof97 then
+          entryKof97:reset()
+        end
+        debugLog("[Automation] Phase -> ATTRACT, state reset")
+      end
+      
+      -- 进入对战阶段时重置 KO 标记并记录对战开始帧
+      if currentPhase == PHASE.FIGHT then
+        koDetected = false
+        koConfirmFrames = 0
+        fightStartFrame = frameCount
+        roundCount = roundCount + 1
+        debugLog(string.format("[Automation] 进入 Round %d", roundCount))
+      end
     end
   end
 

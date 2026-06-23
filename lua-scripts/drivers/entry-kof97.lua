@@ -128,23 +128,32 @@ function EntryKof97:update(frameCount)
     return
   end
 
+  -- 使用状态字节加速状态切换
+  local stateAddr = self.config.stateAddress
+  local sv = self.config.stateValues or {}
+  local stateVal = stateAddr and self.mem:readU8(stateAddr) or 0
+
   if self.state == STATE.IDLE then
     self:_setState(STATE.BOOT, "init")
     return
   end
 
   if self.state == STATE.BOOT then
-    -- Universe BIOS 加载时间稍长，等待 300 帧（~5秒）
-    if self.stateFrame >= 300 then
-      self:_setState(STATE.TITLE, "boot stable")
+    -- 使用状态字节检测是否已过 BIOS 加载
+    -- 如果状态字节已经是 title 或 attract，说明已加载完成
+    if stateVal == (sv.title or 1) or stateVal == (sv.attract or 0) then
+      self:_setState(STATE.TITLE, "boot done by state")
+    elseif self.stateFrame >= 180 then  -- 最长 180 帧 (~3秒) 兜底
+      self:_setState(STATE.TITLE, "boot timeout")
     end
     return
   end
 
   if self.state == STATE.TITLE then
-    if self.stateFrame == 30 then
-      -- 先确认 Universe BIOS 是否在标题画面
-      -- Universe BIOS 下 Coin 是独立的 AUDIO_COIN 端口，Start 在 :edge:joy:START
+    -- 如果状态字节已经是 select，说明已进入选人，跳过投币
+    if stateVal == (sv.select or 4) then
+      self:_setState(STATE.BOTH_START_PRESS, "skip to start (already in select)")
+    elseif self.stateFrame >= 10 then
       self:_setState(STATE.COIN_PRESS, "insert coin")
     end
     return
@@ -154,7 +163,7 @@ function EntryKof97:update(frameCount)
     -- Universe BIOS: 给 P1 和 P2 各投一个币（通过 AUDIO_COIN 端口）
     self:_press({"COIN"}, 1, 8)
     self:_press({"COIN"}, 2, 8)
-    if self.stateFrame >= 20 then
+    if self.stateFrame >= 10 then
       self:_releaseAll()
       self:_setState(STATE.COIN_WAIT, "coin released")
     end
@@ -162,7 +171,10 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.COIN_WAIT then
-    if self.stateFrame >= 20 then
+    -- 使用状态字节检测是否已进入选人
+    if stateVal == (sv.select or 4) then
+      self:_setState(STATE.BOTH_START_PRESS, "state shows select, press start now")
+    elseif self.stateFrame >= 10 then
       self:_setState(STATE.BOTH_START_PRESS, "press P1+P2 start")
     end
     return
@@ -170,9 +182,9 @@ function EntryKof97:update(frameCount)
 
   if self.state == STATE.BOTH_START_PRESS then
     -- 同时按下 P1 Start + P2 Start，持续稍长以确保 VS 模式触发
-    self:_press({"START"}, 1, 20)
-    self:_press({"START"}, 2, 20)
-    if self.stateFrame >= 20 then
+    self:_press({"START"}, 1, 15)
+    self:_press({"START"}, 2, 15)
+    if self.stateFrame >= 15 then
       self:_releaseAll()
       self:_setState(STATE.BOTH_START_WAIT, "start released")
     end
@@ -180,12 +192,17 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.BOTH_START_WAIT then
-    -- 等待进入选人/排序画面，期间偶尔补按 A 防止超时
-    if self.stateFrame % 20 == 0 then
+    -- 使用状态字节检测是否已进入选人
+    if stateVal == (sv.select or 4) then
+      self:_setState(STATE.A_PRESS, "state shows select, confirm now")
+      return
+    end
+    -- 持续补按 A 防止超时
+    if self.stateFrame % 10 == 0 then
       self:_press({"BUTTON1"}, 1, 4)
       self:_press({"BUTTON1"}, 2, 4)
     end
-    if self.stateFrame >= 90 then
+    if self.stateFrame >= 30 then
       self:_releaseAll()
       self:_setState(STATE.A_PRESS, "auto-select + confirm")
     end
@@ -196,7 +213,13 @@ function EntryKof97:update(frameCount)
     -- 持续按 A 完成双方选人和确认
     self:_press({"BUTTON1"}, 1, 6)
     self:_press({"BUTTON1"}, 2, 6)
-    if self.stateFrame >= 60 then
+    -- 使用状态字节检测是否已进入 loading/fight
+    if stateVal == (sv.loading or 6) or stateVal == (sv.fight or 8) then
+      self:_releaseAll()
+      self:_setState(STATE.FIGHT, "state shows loading/fight")
+      return
+    end
+    if self.stateFrame >= 40 then
       self:_releaseAll()
       self:_setState(STATE.A_WAIT, "confirm released")
     end
@@ -204,9 +227,12 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.A_WAIT then
-    -- 等待战斗加载完成（可达 120 帧 = 2秒）
-    -- 如果 _detectFight() 成功会提前退出
-    if self.stateFrame >= 120 then
+    -- 使用状态字节检测是否已进入战斗
+    if stateVal == (sv.fight or 8) or stateVal == 9 then
+      self:_setState(STATE.FIGHT, "state shows fight")
+      return
+    end
+    if self.stateFrame >= 30 then
       self.cycle = self.cycle + 1
       if self.cycle >= self.maxCycles then
         if not self.fallbackToCpu then
