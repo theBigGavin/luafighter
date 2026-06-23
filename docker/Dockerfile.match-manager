@@ -8,8 +8,10 @@ ENTRYPOINT []
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/usr/games:${PATH}"
+ENV LIBGL_ALWAYS_SOFTWARE=1
+ENV GALLIUM_DRIVER=llvmpipe
 
-# 安装系统依赖（MAME 运行库已自带，只补 Node.js 和推流工具）
+# 安装系统依赖（MAME 运行库已自带，补 Node.js、推流工具、Mesa 软件渲染）
 RUN apt-get update && apt-get install -y \
     curl \
     xvfb \
@@ -18,6 +20,9 @@ RUN apt-get update && apt-get install -y \
     pulseaudio-utils \
     ca-certificates \
     gnupg \
+    mesa-utils \
+    libgl1-mesa-dri \
+    libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Node.js 24 LTS

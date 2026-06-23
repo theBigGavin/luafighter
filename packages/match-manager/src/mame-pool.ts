@@ -157,10 +157,8 @@ export class MameProcessManager {
       '-plugins',
       '-pluginspath', pluginPath,
       '-plugin', 'luafighter',
-      '-resolution', '640x480',
-      '-nokeepaspect',
+      '-resolution', '384x224',
       '-skip_gameinfo',
-      '-verbose',
       '-cfg_directory', '/app/cfg',
     ];
 

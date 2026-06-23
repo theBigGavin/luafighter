@@ -138,20 +138,17 @@ export class FFmpegStreamer {
 
     const outputArgs: string[] = [
       '-vcodec', 'libx264',
-      '-preset', 'ultrafast',
+      '-preset', 'veryfast',
       '-tune', 'zerolatency',
       '-b:v', bitrate,
       '-maxrate', bitrate,
-      '-bufsize', '200k',       // 减小缓冲区，降低延迟累积
-      '-g', '1',                // 每帧都是关键帧，消除 GOP 延迟
-      '-keyint_min', '1',
-      '-sc_threshold', '0',     // 禁用场景切换关键帧，强制固定 GOP
+      '-bufsize', '500k',
+      '-g', '15',
       '-pix_fmt', 'yuv420p',
       '-acodec', 'aac',
-      '-b:a', '128k',
+      '-b:a', '96k',
       '-ar', '48000',
       '-ac', '2',
-      '-threads', '4',          // 利用多线程加速编码
       '-f', 'flv',
       rtmpUrl,
     ];
@@ -181,10 +178,10 @@ export class StreamManager {
       roomId,
       display,
       rtmpUrl,
-      width: 384,              // KOF97 街机原生分辨率
+      width: 384,
       height: 224,
-      fps: 30,                 // 降低帧率到 30 FPS，减少 CPU 占用
-      bitrate: '1500k',        // 帧率降低，码率同步降低
+      fps: 15,
+      bitrate: '1000k',
     };
 
     const streamer = new FFmpegStreamer(config, {
