@@ -84,10 +84,10 @@
     "COIN": "P2_COIN"
   },
   "neogeoInputPorts": {
-    "coin": "IN3",
-    "start": "SYSTEM",
-    "p1": "P1",
-    "p2": "P2"
+    "coin": "AUDIO_COIN",
+    "start": "edge:joy:START",
+    "p1": "edge:joy:JOY1",
+    "p2": "edge:joy:JOY2"
   },
   "neogeoFieldMasks": {
     "Up": 1,

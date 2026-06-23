@@ -39,9 +39,9 @@ services:
       - MEDIA_STREAMER_HOST=media-streamer
     volumes:
       - ../roms:/app/roms:ro
-      - ../lua-scripts:/app/lua-scripts:ro
-      - ../plugins:/app/plugins:ro
-      - ../scripts:/app/scripts:ro
+      - ../lua-scripts:/app/lua-scripts
+      - ../plugins:/app/plugins
+      - ../scripts:/app/scripts
       - ../cfg:/app/cfg
       - x11-sock:/tmp/.X11-unix
       - pulse-sock:/tmp/pulse

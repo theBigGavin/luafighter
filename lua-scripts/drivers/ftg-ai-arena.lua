@@ -81,7 +81,7 @@ end
 
 function FtgAiArena:_readHealth(player)
   local addr = (player == 1) and self.config.p1HealthAddr or self.config.p2HealthAddr
-  return self:_read(addr, 1) or 0
+  return self:_read(addr, 2) or 0
 end
 
 function FtgAiArena:_readX(player)

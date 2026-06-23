@@ -97,7 +97,8 @@ end
 local NEOGEO_FIELD_MAP = nil
 
 local function buildNeoGeoFieldMap(romConfig)
-  if NEOGEO_FIELD_MAP then return NEOGEO_FIELD_MAP end
+  -- 强制重新构建，忽略缓存（调试期间）
+  -- if NEOGEO_FIELD_MAP then return NEOGEO_FIELD_MAP end
   local ports = romConfig and romConfig.neogeoInputPorts
   local masks = romConfig and romConfig.neogeoFieldMasks
   if not ports or not masks then return nil end
@@ -107,20 +108,14 @@ local function buildNeoGeoFieldMap(romConfig)
     for suffix, mask in pairs(masks) do
       local name = prefix .. "_" .. suffix
       local fieldName = prefix .. " " .. suffix
-      -- special-case START/COIN field names
+      -- MAME 0.288 NeoGeo 实际字段名（通过 initPorts 诊断确认）
       if suffix == "START" then
         fieldName = (prefix == "P1") and "1 Player Start" or "2 Players Start"
       elseif suffix == "COIN" then
         fieldName = (prefix == "P1") and "Coin 1" or "Coin 2"
-      elseif suffix == "A" then
-        fieldName = prefix .. " Button 1"
-      elseif suffix == "B" then
-        fieldName = prefix .. " Button 2"
-      elseif suffix == "C" then
-        fieldName = prefix .. " Button 3"
-      elseif suffix == "D" then
-        fieldName = prefix .. " Button 4"
       end
+      -- NeoGeo 字段名就是 A/B/C/D，不需要 "Button 1" 转换
+      log:info(string.format("[InputController] buildNeoGeoFieldMap: %s -> fieldName=%s portTag=%s", name, fieldName, portTag))
       map[name] = { portTag = portTag, fieldName = fieldName, mask = mask }
     end
   end
@@ -138,21 +133,69 @@ end
 local NEOGEO_TAP_STATE = {
   p1 = 0xFF,  -- 低电平有效：0xFF 表示所有按钮松开
   p2 = 0xFF,
+  system = 0xFFFF,  -- SYSTEM 端口 ($380000) 16-bit，低电平有效
   tapsInstalled = false,
   tapP1 = nil,
   tapP2 = nil,
+  tapSystem = nil,
 }
 
+-- 当前输入状态 (公共)
+local activeInputs = {}
+local comboQueue = {}
+local comboTimer = 0
+local isExecutingCombo = false
+
+-- CPS1 检测缓存（必须在 installNeoGeoTaps 之前定义）
+local isCPS1 = nil
+local cps1_warned = false  -- 是否已经输出过相关日志
+
+-- 检测是否是 CPS1 架构
+local function detectCPS1()
+  local m = manager.machine
+  if not m or not m.ioport then return false end
+  local port = m.ioport.ports[":IN2"]
+  if not port then return false end
+  for name, _ in pairs(port.fields) do
+    if name:find("Kick") then return true end
+  end
+  return false
+end
+
+local function checkCPS1()
+  if isCPS1 == nil then
+    isCPS1 = detectCPS1()
+  end
+  return isCPS1
+end
+
+-- ============ NeoGeo Tap ============
 -- 为 NeoGeo 安装 read_tap，拦截 CPU 对输入寄存器的读取
 -- 这是 field:set_value 的备选/补充方案，确保在 UniBIOS 或特殊情况下也能注入输入
 local function installNeoGeoTaps()
-  if NEOGEO_TAP_STATE.tapsInstalled then return end
-  if checkCPS1() then return end  -- 不是 NeoGeo，跳过
+  log:info("installNeoGeoTaps called")
+  if NEOGEO_TAP_STATE.tapsInstalled then
+    log:info("installNeoGeoTaps: already installed")
+    return
+  end
+  if checkCPS1() then
+    log:info("installNeoGeoTaps: CPS1 detected, skipping")
+    return
+  end
+  log:info("installNeoGeoTaps: not CPS1, proceeding")
 
   local cpu = manager.machine.devices[":maincpu"]
-  if not cpu then return end
+  if not cpu then
+    log:warn("installNeoGeoTaps: no maincpu")
+    return
+  end
+  log:info("installNeoGeoTaps: maincpu found")
   local space = cpu.spaces and cpu.spaces["program"]
-  if not space then return end
+  if not space then
+    log:warn("installNeoGeoTaps: no program space")
+    return
+  end
+  log:info("installNeoGeoTaps: program space found")
 
   -- 使用 2 字节范围，确保 install_read_tap 接受
   local ok1, tap1 = pcall(space.install_read_tap, space, 0x300000, 0x300001, "luafighter_neogeo_p1",
@@ -184,9 +227,28 @@ local function installNeoGeoTaps()
     log:warn(string.format("NeoGeo tap: P2 install failed, ok=%s err=%s", tostring(ok2), tostring(tap2)))
   end
 
+  -- 拦截 SYSTEM 输入寄存器 $380000 (Start 键)
+  -- 注意：$380000 包含 Cheat 菜单检测位，read_tap 可能误触发 Cheat 菜单
+  -- 暂时禁用，使用 field:set_value 注入 Start 键
+  --[[
+  local ok3, tap3 = pcall(space.install_read_tap, space, 0x380000, 0x380001, "luafighter_neogeo_system",
+    function(offset, data, mask)
+      if offset == 0x380000 then
+        return data & NEOGEO_TAP_STATE.system
+      end
+      return data
+    end)
+  if ok3 and tap3 then
+    NEOGEO_TAP_STATE.tapSystem = tap3
+    log:info("NeoGeo tap: SYSTEM installed at $380000")
+  else
+    log:warn(string.format("NeoGeo tap: SYSTEM install failed, ok=%s err=%s", tostring(ok3), tostring(tap3)))
+  end
+  --]]
+
   if NEOGEO_TAP_STATE.tapP1 and NEOGEO_TAP_STATE.tapP2 then
     NEOGEO_TAP_STATE.tapsInstalled = true
-    log:info("NeoGeo tap: both installed successfully")
+    log:info("NeoGeo tap: P1/P2 installed successfully")
   else
     log:warn("NeoGeo tap: installation incomplete")
   end
@@ -202,23 +264,53 @@ local function removeNeoGeoTaps()
     pcall(NEOGEO_TAP_STATE.tapP2.remove, NEOGEO_TAP_STATE.tapP2)
     NEOGEO_TAP_STATE.tapP2 = nil
   end
+  if NEOGEO_TAP_STATE.tapSystem then
+    pcall(NEOGEO_TAP_STATE.tapSystem.remove, NEOGEO_TAP_STATE.tapSystem)
+    NEOGEO_TAP_STATE.tapSystem = nil
+  end
   NEOGEO_TAP_STATE.tapsInstalled = false
   NEOGEO_TAP_STATE.p1 = 0xFF
   NEOGEO_TAP_STATE.p2 = 0xFF
+  NEOGEO_TAP_STATE.system = 0xFFFF
 end
 
 -- 设置 NeoGeo 按钮状态（通过 read_tap 注入）
 -- 低电平有效：按下时清零对应位，释放时置位
+-- P1/P2 方向/按钮在 $300000/$340000，Start 在 $380000
 local function setNeoGeoTapState(player, portName, pressed)
-  local state = (player == 1) and NEOGEO_TAP_STATE.p1 or NEOGEO_TAP_STATE.p2
   local mapping = NEOGEO_FIELD_MAP and NEOGEO_FIELD_MAP[portName]
-  if not mapping then return state end
+  if not mapping then
+    log:warn(string.format("setNeoGeoTapState: no mapping for %s", portName))
+    return
+  end
   local mask = mapping.mask or 0
 
+  -- Start 键在 SYSTEM 端口 ($380000)
+  if portName:find("_START$") then
+    local systemState = NEOGEO_TAP_STATE.system
+    -- Start 键位：P1 Start = bit 8 (0x0100), P2 Start = bit 10 (0x0400)
+    local startMask = (player == 1) and 0x0100 or 0x0400
+    if pressed then
+      systemState = systemState & ~startMask  -- 按下：清零对应位
+    else
+      systemState = systemState | startMask   -- 释放：置位对应位
+    end
+    NEOGEO_TAP_STATE.system = systemState
+    return
+  end
+
+  -- P1/P2 方向/按钮在 $300000/$340000
+  local oldState = (player == 1) and NEOGEO_TAP_STATE.p1 or NEOGEO_TAP_STATE.p2
+  local state = oldState
   if pressed then
     state = state & ~mask  -- 按下：清零对应位（低电平有效）
   else
     state = state | mask   -- 释放：置位对应位
+  end
+
+  if state ~= oldState then
+    log:info(string.format("setNeoGeoTapState: P%d %s %s mask=0x%02X state=0x%02X->0x%02X",
+      player, portName, pressed and "PRESSED" or "RELEASED", mask, oldState, state))
   end
 
   if player == 1 then
@@ -226,7 +318,6 @@ local function setNeoGeoTapState(player, portName, pressed)
   else
     NEOGEO_TAP_STATE.p2 = state
   end
-  return state
 end
 
 -- 获取玩家编号（从 portName 解析 P1/P2）
@@ -255,6 +346,10 @@ local function setPortValue(portName, value, platform)
       log:warn(string.format("setPortValue: no mapping for %s", portName))
       return
     end
+    
+    -- 诊断：打印 mapping 内容
+    log:info(string.format("setPortValue: %s mapping={portTag=%s fieldName=%s mask=%d}", 
+      portName, tostring(mapping.portTag), tostring(mapping.fieldName), tonumber(mapping.mask) or 0))
 
     -- 方案 1：field:set_value（标准 ioport 层注入）
     -- 同时尝试带冒号和不带冒号的端口 tag
@@ -276,14 +371,12 @@ local function setPortValue(portName, value, platform)
       log:warn(string.format("setPortValue: port not found for %s (portTag=%s)", portName, mapping.portTag))
     end
 
-    -- 方案 2：install_read_tap（直接拦截 CPU 读取，仅对 P1/P2 方向/按钮有效）
-    -- Start/Coin 在 $380000 寄存器，不在 $300000/$340000，不能通过 read_tap 注入
-    if mapping.portTag == "P1" or mapping.portTag == "P2" then
-      installNeoGeoTaps()
-      local player = getPlayerFromPortName(portName)
-      if player then
-        setNeoGeoTapState(player, portName, value == 1)
-      end
+    -- 方案 2：install_read_tap（直接拦截 CPU 读取，绕过 BIOS 层）
+    -- P1/P2 方向/按钮在 $300000/$340000，Start 在 $380000
+    installNeoGeoTaps()
+    local player = getPlayerFromPortName(portName)
+    if player then
+      setNeoGeoTapState(player, portName, value == 1)
     end
     return
   end
@@ -308,29 +401,6 @@ local activeInputs = {}
 local comboQueue = {}
 local comboTimer = 0
 local isExecutingCombo = false
-
--- CPS1 检测缓存
-local isCPS1 = nil
-local cps1_warned = false  -- 是否已经输出过相关日志
-
--- 检测是否是 CPS1 架构
-local function detectCPS1()
-  local m = manager.machine
-  if not m or not m.ioport then return false end
-  local port = m.ioport.ports[":IN2"]
-  if not port then return false end
-  for name, _ in pairs(port.fields) do
-    if name:find("Kick") then return true end
-  end
-  return false
-end
-
-local function checkCPS1()
-  if isCPS1 == nil then
-    isCPS1 = detectCPS1()
-  end
-  return isCPS1
-end
 
 function InputController.new(romConfig)
   local obj = {}
@@ -452,6 +522,7 @@ function InputController:initPorts()
           portOk, port = pcall(function() return machine.ioport.ports[":" .. tag] end)
         end
         if not portOk or not port then ok = false
+          log:warn(string.format("[InputController] NeoGeo port %s (%s) NOT FOUND", name, tag))
         else
           local fieldNames = {}
           for fname, _ in pairs(port.fields) do
@@ -459,6 +530,17 @@ function InputController:initPorts()
           end
           logMsg(string.format("[InputController] NeoGeo port %s (%s) fields: %s", name, tag, table.concat(fieldNames, ",")))
         end
+      end
+      -- 诊断：如果任何端口找不到，列出所有可用端口
+      if not ok then
+        local allPorts = {}
+        local okPorts, portsTable = pcall(function() return machine.ioport.ports end)
+        if okPorts and portsTable then
+          for tag, _ in pairs(portsTable) do
+            table.insert(allPorts, tag)
+          end
+        end
+        log:warn(string.format("[InputController] 所有可用端口: %s", table.concat(allPorts, ", ")))
       end
       if ok then
         -- 确认 KOF97 的 Cabinet DIP 为 VS Mode，保证 1P vs 2P

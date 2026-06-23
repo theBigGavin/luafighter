@@ -27,15 +27,15 @@ end
 local function makeHealthReader(config, mem)
   local max = config.maxHealth or 144
   return function()
-    local function readU8(addr)
+    local function readU16(addr)
       if not addr then return 0 end
-      local ok, val = pcall(mem.readU8, mem, addr)
+      local ok, val = pcall(mem.readU16, mem, addr)
       if not ok or val == nil then return 0 end
       val = tonumber(val) or 0
       if val > max then val = max end
       return val
     end
-    return readU8(config.p1HealthAddr), readU8(config.p2HealthAddr)
+    return readU16(config.p1HealthAddr), readU16(config.p2HealthAddr)
   end
 end
 

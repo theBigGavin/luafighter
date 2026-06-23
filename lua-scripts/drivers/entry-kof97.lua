@@ -74,8 +74,10 @@ function EntryKof97:_readBattleSignals()
   local p1HpAddr = self.config.p1HealthAddr
   local p2HpAddr = self.config.p2HealthAddr
   local time = timeAddr and self.mem:readU8(timeAddr) or nil
-  local p1Hp = p1HpAddr and self.mem:readU8(p1HpAddr) or nil
-  local p2Hp = p2HpAddr and self.mem:readU8(p2HpAddr) or nil
+  -- 使用 readU16 读取血量（KOF97 可能是 16 位血量）
+  local p1Hp = p1HpAddr and self.mem:readU16(p1HpAddr) or nil
+  local p2Hp = p2HpAddr and self.mem:readU16(p2HpAddr) or nil
+  debugLog(string.format("[EntryKof97] battle signals: time=%s p1Hp=%s p2Hp=%s", tostring(time), tostring(p1Hp), tostring(p2Hp)))
   return time, p1Hp, p2Hp
 end
 
@@ -151,7 +153,7 @@ function EntryKof97:update(frameCount)
     -- 如果状态字节已经是 select，说明已进入选人，跳过投币
     if stateVal == (sv.select or 4) then
       self:_setState(STATE.BOTH_START_PRESS, "skip to start (already in select)")
-    elseif self.stateFrame >= 10 then
+    elseif self.stateFrame >= 60 then  -- 等待 60 帧 (~1秒) 让 attract demo 结束
       self:_setState(STATE.COIN_PRESS, "insert coin")
     end
     return
@@ -159,9 +161,9 @@ function EntryKof97:update(frameCount)
 
   if self.state == STATE.COIN_PRESS then
     -- Universe BIOS: 给 P1 和 P2 各投一个币（通过 AUDIO_COIN 端口）
-    self:_press({"COIN"}, 1, 8)
-    self:_press({"COIN"}, 2, 8)
-    if self.stateFrame >= 10 then
+    self:_press({"COIN"}, 1, 20)
+    self:_press({"COIN"}, 2, 20)
+    if self.stateFrame >= 20 then
       self:_releaseAll()
       self:_setState(STATE.COIN_WAIT, "coin released")
     end
@@ -172,7 +174,7 @@ function EntryKof97:update(frameCount)
     -- 使用状态字节检测是否已进入选人
     if stateVal == (sv.select or 4) then
       self:_setState(STATE.BOTH_START_PRESS, "state shows select, press start now")
-    elseif self.stateFrame >= 10 then
+    elseif self.stateFrame >= 30 then
       self:_setState(STATE.BOTH_START_PRESS, "press P1+P2 start")
     end
     return
@@ -180,9 +182,9 @@ function EntryKof97:update(frameCount)
 
   if self.state == STATE.BOTH_START_PRESS then
     -- 同时按下 P1 Start + P2 Start，持续稍长以确保 VS 模式触发
-    self:_press({"START"}, 1, 15)
-    self:_press({"START"}, 2, 15)
-    if self.stateFrame >= 15 then
+    self:_press({"START"}, 1, 30)
+    self:_press({"START"}, 2, 30)
+    if self.stateFrame >= 30 then
       self:_releaseAll()
       self:_setState(STATE.BOTH_START_WAIT, "start released")
     end
@@ -197,10 +199,10 @@ function EntryKof97:update(frameCount)
     end
     -- 持续补按 A 防止超时
     if self.stateFrame % 10 == 0 then
-      self:_press({"BUTTON1"}, 1, 4)
-      self:_press({"BUTTON1"}, 2, 4)
+      self:_press({"BUTTON1"}, 1, 6)
+      self:_press({"BUTTON1"}, 2, 6)
     end
-    if self.stateFrame >= 30 then
+    if self.stateFrame >= 60 then
       self:_releaseAll()
       self:_setState(STATE.A_PRESS, "auto-select + confirm")
     end
@@ -209,15 +211,15 @@ function EntryKof97:update(frameCount)
 
   if self.state == STATE.A_PRESS then
     -- 持续按 A 完成双方选人和确认
-    self:_press({"BUTTON1"}, 1, 6)
-    self:_press({"BUTTON1"}, 2, 6)
+    self:_press({"BUTTON1"}, 1, 10)
+    self:_press({"BUTTON1"}, 2, 10)
     -- 使用状态字节检测是否已进入 loading/fight
     if stateVal == (sv.loading or 6) or stateVal == (sv.fight or 8) then
       self:_releaseAll()
       self:_setState(STATE.FIGHT, "state shows loading/fight")
       return
     end
-    if self.stateFrame >= 40 then
+    if self.stateFrame >= 120 then
       self:_releaseAll()
       self:_setState(STATE.A_WAIT, "confirm released")
     end
@@ -230,16 +232,19 @@ function EntryKof97:update(frameCount)
       self:_setState(STATE.FIGHT, "state shows fight")
       return
     end
-    if self.stateFrame >= 30 then
+    if self.stateFrame >= 60 then
       self.cycle = self.cycle + 1
       if self.cycle >= self.maxCycles then
+        -- 多次尝试失败，尝试 soft reset 跳过 attract
         if not self.fallbackToCpu then
           self.fallbackToCpu = true
           self.cycle = 0
-          self:_setState(STATE.TITLE, "switch to CPU fallback")
+          debugLog("[EntryKof97] 多次尝试失败，执行 soft reset")
+          self.input:softReset()
+          self:_setState(STATE.IDLE, "soft reset done")
         else
           self.cycle = 0
-          self:_setState(STATE.TITLE, "retry CPU fallback")
+          self:_setState(STATE.TITLE, "retry after soft reset")
         end
       else
         self:_setState(STATE.TITLE, string.format("retry cycle %d", self.cycle))

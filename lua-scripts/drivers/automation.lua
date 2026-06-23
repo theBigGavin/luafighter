@@ -83,6 +83,13 @@ romConfig = romConfig or {
 
 local IS_NEOGEO = romConfig.platform == "neogeo"
 
+-- 诊断：打印 NeoGeo 端口配置
+if IS_NEOGEO and romConfig.neogeoInputPorts then
+  local ports = romConfig.neogeoInputPorts
+  debugLog(string.format("[Automation] NeoGeo ports: p1=%s p2=%s start=%s coin=%s", 
+    tostring(ports.p1), tostring(ports.p2), tostring(ports.start), tostring(ports.coin)))
+end
+
 -- 血量上限前后端统一
 local MAX_HEALTH = romConfig.maxHealth or 144
 
@@ -183,8 +190,8 @@ local function readS16(hexStr)
 end
 
 local function readHealth()
-  local p1 = readU8(romConfig.p1HealthAddr)
-  local p2 = readU8(romConfig.p2HealthAddr)
+  local p1 = mem:readU16(romConfig.p1HealthAddr) or 0
+  local p2 = mem:readU16(romConfig.p2HealthAddr) or 0
   if p1 and p1 > MAX_HEALTH then p1 = MAX_HEALTH end
   if p2 and p2 > MAX_HEALTH then p2 = MAX_HEALTH end
   return p1 or 0, p2 or 0
