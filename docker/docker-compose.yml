@@ -99,7 +99,7 @@ services:
     image: nginx:alpine
     container_name: luafighter-web
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT:-8080}:80"
     volumes:
       - ../packages/frontend/dist:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
