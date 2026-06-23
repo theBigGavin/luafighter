@@ -102,14 +102,19 @@ export default function WatchRoom() {
     };
   }, [roomId, appendStrength]);
 
-  // 获取播放地址
+  // 获取播放地址（使用绝对 URL，确保包含当前端口）
   useEffect(() => {
     if (!roomId) return;
+    const baseUrl = window.location.origin;
     fetch(`/api/streams/${roomId}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.webrtcUrl) setWebrtcUrl(data.webrtcUrl);
-        if (data.hlsUrl) setHlsUrl(data.hlsUrl);
+        if (data.hlsUrl) {
+          // 将相对路径转换为绝对 URL，确保包含当前 host:port
+          const absoluteHlsUrl = new URL(data.hlsUrl, baseUrl).href;
+          setHlsUrl(absoluteHlsUrl);
+        }
       })
       .catch(console.error);
   }, [roomId]);
