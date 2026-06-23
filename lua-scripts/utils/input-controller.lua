@@ -153,7 +153,94 @@ local function buildNeoGeoFieldMap(romConfig)
   return map
 end
 
--- 平台无关：根据 portName 获取底层映射
+-- NeoGeo 输入注入状态（install_read_tap 方案）
+local NEOGEO_TAP_STATE = {
+  p1 = 0xFF,  -- 低电平有效：0xFF 表示所有按钮松开
+  p2 = 0xFF,
+  tapsInstalled = false,
+  tapP1 = nil,
+  tapP2 = nil,
+}
+
+-- 为 NeoGeo 安装 read_tap，拦截 CPU 对输入寄存器的读取
+-- 这是 field:set_value 的备选/补充方案，确保在 UniBIOS 或特殊情况下也能注入输入
+local function installNeoGeoTaps()
+  if NEOGEO_TAP_STATE.tapsInstalled then return end
+  if checkCPS1() then return end  -- 不是 NeoGeo，跳过
+
+  local cpu = manager.machine.devices[":maincpu"]
+  if not cpu then return end
+  local space = cpu.spaces and cpu.spaces["program"]
+  if not space then return end
+
+  -- 拦截 P1 输入寄存器 $300000
+  local ok1, tap1 = pcall(space.install_read_tap, space, 0x300000, 0x300000, "luafighter_neogeo_p1",
+    function(offset, data, mask)
+      return NEOGEO_TAP_STATE.p1
+    end)
+  if ok1 and tap1 then
+    NEOGEO_TAP_STATE.tapP1 = tap1
+  end
+
+  -- 拦截 P2 输入寄存器 $340000
+  local ok2, tap2 = pcall(space.install_read_tap, space, 0x340000, 0x340000, "luafighter_neogeo_p2",
+    function(offset, data, mask)
+      return NEOGEO_TAP_STATE.p2
+    end)
+  if ok2 and tap2 then
+    NEOGEO_TAP_STATE.tapP2 = tap2
+  end
+
+  if NEOGEO_TAP_STATE.tapP1 or NEOGEO_TAP_STATE.tapP2 then
+    NEOGEO_TAP_STATE.tapsInstalled = true
+    logMsg("[InputController] NeoGeo read_tap 安装成功 (P1=$300000, P2=$340000)")
+  end
+end
+
+-- 卸载 NeoGeo read_tap
+local function removeNeoGeoTaps()
+  if NEOGEO_TAP_STATE.tapP1 then
+    pcall(NEOGEO_TAP_STATE.tapP1.remove, NEOGEO_TAP_STATE.tapP1)
+    NEOGEO_TAP_STATE.tapP1 = nil
+  end
+  if NEOGEO_TAP_STATE.tapP2 then
+    pcall(NEOGEO_TAP_STATE.tapP2.remove, NEOGEO_TAP_STATE.tapP2)
+    NEOGEO_TAP_STATE.tapP2 = nil
+  end
+  NEOGEO_TAP_STATE.tapsInstalled = false
+  NEOGEO_TAP_STATE.p1 = 0xFF
+  NEOGEO_TAP_STATE.p2 = 0xFF
+end
+
+-- 设置 NeoGeo 按钮状态（通过 read_tap 注入）
+-- 低电平有效：按下时清零对应位，释放时置位
+local function setNeoGeoTapState(player, portName, pressed)
+  local state = (player == 1) and NEOGEO_TAP_STATE.p1 or NEOGEO_TAP_STATE.p2
+  local mapping = NEOGEO_FIELD_MAP and NEOGEO_FIELD_MAP[portName]
+  if not mapping then return state end
+  local mask = mapping.mask or 0
+
+  if pressed then
+    state = state & ~mask  -- 按下：清零对应位（低电平有效）
+  else
+    state = state | mask   -- 释放：置位对应位
+  end
+
+  if player == 1 then
+    NEOGEO_TAP_STATE.p1 = state
+  else
+    NEOGEO_TAP_STATE.p2 = state
+  end
+  return state
+end
+
+-- 获取玩家编号（从 portName 解析 P1/P2）
+local function getPlayerFromPortName(portName)
+  if not portName then return nil end
+  if portName:find("^P1_") then return 1 end
+  if portName:find("^P2_") then return 2 end
+  return nil
+end
 local function getMapping(portName, platform)
   if not portName then return nil end
   if platform == "neogeo" then
@@ -163,17 +250,29 @@ local function getMapping(portName, platform)
 end
 
 -- 平台无关：设置单个 port 的硬件状态 (value: 0 释放, 1 按下)
--- 优化：避免每帧创建 pcall 匿名函数，减少 GC 压力
+-- NeoGeo：同时使用 field:set_value 和 install_read_tap 双保险
+-- CPS1：使用 read_tap 状态机
 local function setPortValue(portName, value, platform)
   value = value or 0
   if platform == "neogeo" then
     local mapping = NEOGEO_FIELD_MAP and NEOGEO_FIELD_MAP[portName]
     if not mapping then return end
+
+    -- 方案 1：field:set_value（标准 ioport 层注入）
     local port = manager.machine.ioport.ports[mapping.portTag]
-    if not port then return end
-    local field = port.fields[mapping.fieldName]
-    if not field then return end
-    local ok = pcall(field.set_value, field, value)
+    if port then
+      local field = port.fields[mapping.fieldName]
+      if field then
+        pcall(field.set_value, field, value)
+      end
+    end
+
+    -- 方案 2：install_read_tap（直接拦截 CPU 读取，绕过 BIOS 层）
+    installNeoGeoTaps()  -- 延迟安装，首次调用时初始化
+    local player = getPlayerFromPortName(portName)
+    if player then
+      setNeoGeoTapState(player, portName, value == 1)
+    end
     return
   end
 
@@ -826,6 +925,8 @@ function InputController:resetCpsState()
     pcall(self._tap_dsw.remove, self._tap_dsw)
     self._tap_dsw = nil
   end
+  -- 卸载 NeoGeo read-tap
+  removeNeoGeoTaps()
   self._cps_taps_installed = false
   self._cps_state = nil
   self._main_tap_count = 0
