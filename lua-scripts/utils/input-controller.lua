@@ -158,7 +158,7 @@ local function installNeoGeoTaps()
   local ok1, tap1 = pcall(space.install_read_tap, space, 0x300000, 0x300001, "luafighter_neogeo_p1",
     function(offset, data, mask)
       if offset == 0x300000 then
-        return NEOGEO_TAP_STATE.p1
+        return (data & 0xFF00) | NEOGEO_TAP_STATE.p1
       end
       return data
     end)
@@ -173,7 +173,7 @@ local function installNeoGeoTaps()
   local ok2, tap2 = pcall(space.install_read_tap, space, 0x340000, 0x340001, "luafighter_neogeo_p2",
     function(offset, data, mask)
       if offset == 0x340000 then
-        return NEOGEO_TAP_STATE.p2
+        return (data & 0xFF00) | NEOGEO_TAP_STATE.p2
       end
       return data
     end)
@@ -257,7 +257,11 @@ local function setPortValue(portName, value, platform)
     end
 
     -- 方案 1：field:set_value（标准 ioport 层注入）
+    -- 同时尝试带冒号和不带冒号的端口 tag
     local port = manager.machine.ioport.ports[mapping.portTag]
+    if not port then
+      port = manager.machine.ioport.ports[":" .. mapping.portTag]
+    end
     if port then
       local field = port.fields[mapping.fieldName]
       if field then
@@ -442,7 +446,11 @@ function InputController:initPorts()
     if ports then
       local ok = true
       for name, tag in pairs({coin=ports.coin, start=ports.start, p1=ports.p1, p2=ports.p2}) do
+        -- 同时尝试带冒号和不带冒号的版本（MAME 端口 tag 通常带前导冒号）
         local portOk, port = pcall(function() return machine.ioport.ports[tag] end)
+        if not portOk or not port then
+          portOk, port = pcall(function() return machine.ioport.ports[":" .. tag] end)
+        end
         if not portOk or not port then ok = false
         else
           local fieldNames = {}

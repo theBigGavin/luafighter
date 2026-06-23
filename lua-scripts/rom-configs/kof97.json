@@ -84,7 +84,7 @@
     "COIN": "P2_COIN"
   },
   "neogeoInputPorts": {
-    "coin": "SYSTEM",
+    "coin": "IN3",
     "start": "SYSTEM",
     "p1": "P1",
     "p2": "P2"
