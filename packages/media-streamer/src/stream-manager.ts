@@ -139,11 +139,9 @@ export class FFmpegStreamer {
     const outputArgs: string[] = [
       '-vcodec', 'libx264',
       '-preset', 'veryfast',
-      '-tune', 'zerolatency',
       '-b:v', bitrate,
-      '-maxrate', bitrate,
-      '-bufsize', '500k',
-      '-g', '15',
+      '-bufsize', '2000k',
+      '-g', '30',
       '-pix_fmt', 'yuv420p',
       '-acodec', 'aac',
       '-b:a', '96k',
