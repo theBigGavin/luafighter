@@ -30,14 +30,12 @@ local STATE = {
 }
 
 local DEBUG_LOG = "/tmp/luafighter-debug.log"
-local function debugLog(msg)
-  local ok, fd = pcall(function() return io.open(DEBUG_LOG, "a") end)
-  if ok and fd then
-    fd:write(string.format("[%s] [KOF97 Entry] %s\n", os.date("%H:%M:%S"), tostring(msg)))
-    fd:flush()
-    fd:close()
-  end
-end
+-- 加载日志模块
+local Logger = require("utils.logger")
+local log = Logger.new("entry-kof97")
+
+-- 兼容：旧代码调用 debugLog(msg) 等价于 log:info(msg)
+local function debugLog(msg) log:info(msg) end
 
 function EntryKof97.new(romConfig, memReader, inputCtrl, opts)
   local obj = {}

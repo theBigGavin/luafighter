@@ -36,31 +36,12 @@
   注意：方向键和攻击键在同一 port 的不同 bit 上，允许组合输入。
 ]]
 
-local LOG_FILE = "/tmp/luafighter-debug.log"
-local MAX_LOG_SIZE = 2 * 1024 * 1024  -- 2MB 上限
-local function logMsg(msg)
-  local ok, size = pcall(function()
-    local f = io.open(LOG_FILE, "r")
-    if f then
-      local s = f:seek("end", 0)
-      f:close()
-      return s
-    end
-    return 0
-  end)
-  if ok and size and size > MAX_LOG_SIZE then
-    pcall(function()
-      local f = io.open(LOG_FILE, "w")
-      if f then f:close() end
-    end)
-  end
-  local ok, fd = pcall(function() return io.open(LOG_FILE, "a") end)
-  if ok and fd then
-    fd:write(string.format("[%s] %s\n", os.date("%H:%M:%S"), tostring(msg)))
-    fd:flush()
-    fd:close()
-  end
-end
+-- 加载日志模块
+local Logger = require("utils.logger")
+local log = Logger.new("input-controller")
+
+-- 兼容：旧代码调用 logMsg(msg) 等价于 log:info(msg)
+local function logMsg(msg) log:info(msg) end
 
 local InputController = {}
 InputController.__index = InputController

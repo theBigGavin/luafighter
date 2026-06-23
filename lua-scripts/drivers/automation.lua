@@ -16,34 +16,14 @@
   否则 MAME 会静默禁用该 tap，后续读取不再经过回调。
 ]]
 
--- 调试日志
-local LUAFIGHTER_DEBUG_LOG = os.getenv("LUAFIGHTER_DEBUG_LOG") or "/tmp/luafighter-debug.log"
-local MAX_LOG_SIZE = 2 * 1024 * 1024  -- 2MB 上限，超过则截断
-local function debugLog(msg)
-  local ok, size = pcall(function()
-    local f = io.open(LUAFIGHTER_DEBUG_LOG, "r")
-    if f then
-      local s = f:seek("end", 0)
-      f:close()
-      return s
-    end
-    return 0
-  end)
-  if ok and size and size > MAX_LOG_SIZE then
-    pcall(function()
-      local f = io.open(LUAFIGHTER_DEBUG_LOG, "w")
-      if f then f:close() end
-    end)
-  end
-  local ok, fd = pcall(function() return io.open(LUAFIGHTER_DEBUG_LOG, "a") end)
-  if ok and fd then
-    fd:write(string.format("[%s] %s\n", os.date("%H:%M:%S"), tostring(msg)))
-    fd:flush()
-    fd:close()
-  end
-end
+-- 加载日志模块
+local Logger = require("utils.logger")
+local log = Logger.new("automation")
 
-debugLog("LuaFighter 自动化脚本加载中")
+-- 兼容：旧代码调用 debugLog(msg) 等价于 log:info(msg)
+local function debugLog(msg) log:info(msg) end
+
+log:info("LuaFighter 自动化脚本加载中")
 
 -- 设置 Lua 搜索路径
 local scriptDir = debug and debug.getinfo and debug.getinfo(1, "S") and debug.getinfo(1, "S").source
