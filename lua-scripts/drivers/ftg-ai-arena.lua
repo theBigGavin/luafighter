@@ -29,7 +29,23 @@ local STRATEGY_TTL_FRAMES = 120
 
 -- 调试日志（与 automation.lua 共用同一文件，便于排查）
 local DEBUG_LOG = "/tmp/luafighter-debug.log"
+local MAX_LOG_SIZE = 2 * 1024 * 1024  -- 2MB 上限
 local function debugLog(msg)
+  local ok, size = pcall(function()
+    local f = io.open(DEBUG_LOG, "r")
+    if f then
+      local s = f:seek("end", 0)
+      f:close()
+      return s
+    end
+    return 0
+  end)
+  if ok and size and size > MAX_LOG_SIZE then
+    pcall(function()
+      local f = io.open(DEBUG_LOG, "w")
+      if f then f:close() end
+    end)
+  end
   local ok, fd = pcall(function() return io.open(DEBUG_LOG, "a") end)
   if ok and fd then
     fd:write(string.format("[%s] %s\n", os.date("%H:%M:%S"), tostring(msg)))

@@ -37,7 +37,23 @@
 ]]
 
 local LOG_FILE = "/tmp/luafighter-debug.log"
+local MAX_LOG_SIZE = 2 * 1024 * 1024  -- 2MB 上限
 local function logMsg(msg)
+  local ok, size = pcall(function()
+    local f = io.open(LOG_FILE, "r")
+    if f then
+      local s = f:seek("end", 0)
+      f:close()
+      return s
+    end
+    return 0
+  end)
+  if ok and size and size > MAX_LOG_SIZE then
+    pcall(function()
+      local f = io.open(LOG_FILE, "w")
+      if f then f:close() end
+    end)
+  end
   local ok, fd = pcall(function() return io.open(LOG_FILE, "a") end)
   if ok and fd then
     fd:write(string.format("[%s] %s\n", os.date("%H:%M:%S"), tostring(msg)))
@@ -147,18 +163,17 @@ local function getMapping(portName, platform)
 end
 
 -- 平台无关：设置单个 port 的硬件状态 (value: 0 释放, 1 按下)
+-- 优化：避免每帧创建 pcall 匿名函数，减少 GC 压力
 local function setPortValue(portName, value, platform)
   value = value or 0
   if platform == "neogeo" then
     local mapping = NEOGEO_FIELD_MAP and NEOGEO_FIELD_MAP[portName]
     if not mapping then return end
-    local ok, port = pcall(function()
-      return manager.machine.ioport.ports[mapping.portTag]
-    end)
-    if not ok or not port then return end
+    local port = manager.machine.ioport.ports[mapping.portTag]
+    if not port then return end
     local field = port.fields[mapping.fieldName]
     if not field then return end
-    pcall(function() field:set_value(value) end)
+    local ok = pcall(field.set_value, field, value)
     return
   end
 
@@ -434,8 +449,8 @@ function InputController:installCPS1Taps()
     self._tap_dsw = tap2
    self._framesSinceTap = 0
    -- TEST: Read from both tap ranges to verify they intercept internal reads
-   local test_main = { pcall(function() return space:read_u16(0x800000) end) }
-   local test_dsw = { pcall(function() return space:read_u16(0x800018) end) }
+   local test_main = { pcall(space.read_u16, space, 0x800000) }
+   local test_dsw = { pcall(space.read_u16, space, 0x800018) }
    -- Also check: where is the space?
    local tap1_type = type(tap1)
    local tap2_type = type(tap2)
@@ -502,13 +517,11 @@ function InputController:_pressByName(portName, duration)
       self:_cpsPress(mapping.tag, mapping.mask)
     else
       -- Non-CPS1 fallback: 标准 field:set_value
-      local ok, port = pcall(function()
-        return manager.machine.ioport.ports[mapping.tag]
-      end)
-      if ok and port then
-        local ok2, field = pcall(function() return port:field(mapping.mask) end)
-        if ok2 and field then
-          pcall(function() field:set_value(1) end)
+      local port = manager.machine.ioport.ports[mapping.tag]
+      if port then
+        local field = port:field(mapping.mask)
+        if field then
+          pcall(field.set_value, field, 1)
         end
       end
     end
@@ -534,10 +547,10 @@ function InputController:_releaseByName(portName)
       self:_cpsRelease(mapping.tag, mapping.mask)
       -- 同时清掉标准 ioport field，防止 fallback 路径残留
       local f = self:_getField(mapping.port, mapping.mask)
-      if f then pcall(function() f:set_value(0) end) end
+      if f then pcall(f.set_value, f, 0) end
     else
       local f = self:_getField(mapping.port, mapping.mask)
-      if f then pcall(function() f:set_value(0) end) end
+      if f then pcall(f.set_value, f, 0) end
     end
   end
   activeInputs[portName] = nil
@@ -769,7 +782,7 @@ function InputController:setPersistent(portName)
       activeInputs[portName] = { persistent = true }
     else
       local f = self:_getField(mapping.port, mapping.mask)
-      if f then pcall(function() f:set_value(1) end) end
+      if f then pcall(f.set_value, f, 1) end
       activeInputs[portName] = { persistent = true }
     end
   end
@@ -789,7 +802,7 @@ function InputController:clearPersistent(portName)
       activeInputs[portName] = nil
     else
       local f = self:_getField(mapping.port, mapping.mask)
-      if f then pcall(function() f:set_value(0) end) end
+      if f then pcall(f.set_value, f, 0) end
       activeInputs[portName] = nil
     end
   end
@@ -804,6 +817,15 @@ function InputController:clearAllPersistent()
 end
 
 function InputController:resetCpsState()
+  -- 释放旧的 CPS1 read-tap，防止 address_space 上累积
+  if self._tap_in1 then
+    pcall(self._tap_in1.remove, self._tap_in1)
+    self._tap_in1 = nil
+  end
+  if self._tap_dsw then
+    pcall(self._tap_dsw.remove, self._tap_dsw)
+    self._tap_dsw = nil
+  end
   self._cps_taps_installed = false
   self._cps_state = nil
   self._main_tap_count = 0
@@ -819,11 +841,11 @@ end
 function InputController:softReset()
   local machine = manager.machine
   if machine and machine.soft_reset then
-    pcall(function() machine:soft_reset() end)
+    pcall(machine.soft_reset, machine)
     return
   end
   if machine and machine.hard_reset then
-    pcall(function() machine:hard_reset() end)
+    pcall(machine.hard_reset, machine)
     return
   end
 end

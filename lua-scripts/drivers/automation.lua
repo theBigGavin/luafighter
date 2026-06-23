@@ -18,7 +18,23 @@
 
 -- 调试日志
 local LUAFIGHTER_DEBUG_LOG = os.getenv("LUAFIGHTER_DEBUG_LOG") or "/tmp/luafighter-debug.log"
+local MAX_LOG_SIZE = 2 * 1024 * 1024  -- 2MB 上限，超过则截断
 local function debugLog(msg)
+  local ok, size = pcall(function()
+    local f = io.open(LUAFIGHTER_DEBUG_LOG, "r")
+    if f then
+      local s = f:seek("end", 0)
+      f:close()
+      return s
+    end
+    return 0
+  end)
+  if ok and size and size > MAX_LOG_SIZE then
+    pcall(function()
+      local f = io.open(LUAFIGHTER_DEBUG_LOG, "w")
+      if f then f:close() end
+    end)
+  end
   local ok, fd = pcall(function() return io.open(LUAFIGHTER_DEBUG_LOG, "a") end)
   if ok and fd then
     fd:write(string.format("[%s] %s\n", os.date("%H:%M:%S"), tostring(msg)))
@@ -112,13 +128,11 @@ local function installCoinTap()
   if not cpu or not cpu.spaces then return end
   local sp = cpu.spaces["program"]
   if not sp then return end
-  local ok, tap = pcall(function()
-    return sp:install_read_tap(0x800030, 0x800031, "luafighter_coin", function(offset, data, mask)
-      if coinInjectActive then
-        return (data & 0x00FF) | 0x0100
-      end
-      return data
-    end)
+  local ok, tap = pcall(sp.install_read_tap, sp, 0x800030, 0x800031, "luafighter_coin", function(offset, data, mask)
+    if coinInjectActive then
+      return (data & 0x00FF) | 0x0100
+    end
+    return data
   end)
   if ok and tap then
     coinTapInstalled = true

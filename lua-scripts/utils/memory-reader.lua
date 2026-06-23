@@ -37,7 +37,7 @@ function MemoryReader:readU8(addr)
   local space = getSpace()
   if not space then return nil end
   local addrNum = hexToNum(addr)
-  local ok, val = pcall(function() return space:read_u8(addrNum) end)
+  local ok, val = pcall(space.read_u8, space, addrNum)
   if ok then return val end
   return nil
 end
@@ -46,7 +46,7 @@ function MemoryReader:readU16(addr)
   local space = getSpace()
   if not space then return nil end
   local addrNum = hexToNum(addr)
-  local ok, val = pcall(function() return space:read_u16(addrNum) end)
+  local ok, val = pcall(space.read_u16, space, addrNum)
   if ok then return val end
   -- 降级：读取两个字节拼接
   local lo = self:readU8(addrNum)
@@ -75,7 +75,7 @@ function MemoryReader:writeU8(addr, value)
   local space = getSpace()
   if not space then return false end
   local addrNum = hexToNum(addr)
-  local ok = pcall(function() space:write_u8(addrNum, value) end)
+  local ok = pcall(space.write_u8, space, addrNum, value)
   return ok
 end
 

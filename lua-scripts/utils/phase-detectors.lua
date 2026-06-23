@@ -29,7 +29,7 @@ local function makeHealthReader(config, mem)
   return function()
     local function readU8(addr)
       if not addr then return 0 end
-      local ok, val = pcall(function() return mem:readU8(addr) end)
+      local ok, val = pcall(mem.readU8, mem, addr)
       if not ok or val == nil then return 0 end
       val = tonumber(val) or 0
       if val > max then val = max end
@@ -55,12 +55,12 @@ function PhaseDetectors.newNeoGeo(config, mem)
       local hp1, hp2 = readHealth()
       local timeVal = 0
       if timeAddr then
-        local ok, t = pcall(function() return mem:readU8(timeAddr) end)
+        local ok, t = pcall(mem.readU8, mem, timeAddr)
         if ok and t ~= nil then timeVal = tonumber(t) or 0 end
       end
       local stateVal = 0
       if stateAddr then
-        local ok, s = pcall(function() return mem:readU8(stateAddr) end)
+        local ok, s = pcall(mem.readU8, mem, stateAddr)
         if ok and s ~= nil then stateVal = tonumber(s) or 0 end
       end
 
@@ -128,7 +128,7 @@ function PhaseDetectors.newCps1(config, mem)
       local hp1, hp2 = readHealth()
       local rawValue = 0
       if stateAddr then
-        local ok, v = pcall(function() return mem:readU8(stateAddr) end)
+        local ok, v = pcall(mem.readU8, mem, stateAddr)
         if ok and v ~= nil then rawValue = tonumber(v) or 0 end
       end
 
