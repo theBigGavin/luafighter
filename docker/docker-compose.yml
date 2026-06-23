@@ -98,6 +98,7 @@ services:
   frontend:
     image: nginx:alpine
     container_name: luafighter-web
+    user: root
     ports:
       - "9089:80"
     volumes:
