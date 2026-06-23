@@ -32,7 +32,7 @@
   "p1PowerAddr": null,
   "p2PowerAddr": null,
   "maxHealth": 103,
-  "attackDistance": 12000,
+  "attackDistance": 25000,
   "lockTimeValue": 60,
   "lockPowerValue": 96,
   "lockTime": false,
@@ -43,20 +43,84 @@
   "battleModeAddr2": "0x10A859",
   "battleModeValue": 16,
   "bios": "unibios40",
-  "controllableStates": [0, 1, 2],
+  "controllableStates": [
+    0,
+    1,
+    2
+  ],
   "addressMeta": {
-    "p1HealthAddr": { "source": "fighting-OSD.lua (kof97) + MAME 0.288", "verifiedAt": "2026-06-23", "confidence": "verified", "note": "P1 life offset 0x138 from player base 0x108100, read low byte" },
-    "p2HealthAddr": { "source": "fighting-OSD.lua (kof97) + MAME 0.288", "verifiedAt": "2026-06-23", "confidence": "verified", "note": "P2 life offset 0x138 from player base 0x108300 (space=0x200), read low byte" },
-    "p1XAddr": { "source": "MAME 调试器扫描 0x108000-0x108A00", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "有符号 16-bit，战斗初始约 24592" },
-    "p2XAddr": { "source": "MAME 调试器扫描 0x108000-0x108A00", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "有符号 16-bit，战斗初始约 18156" },
-    "timeAddr": { "source": "MAME 调试器 + kof97-findings.md", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "96 开始递减；写入会触发 WORK RAM ERROR" },
-    "stateAddress": { "source": "Neo Geo BIOS game state register", "verifiedAt": "2026-06-22", "confidence": "community", "note": "0x10A5F4 is the Neo Geo BIOS game state byte (1=title, 4=select, 8=fight)" },
-    "battleModeAddr1": { "source": "KOF97 金手指 / cheat dat (1emulation.com/forums/topic/4422)", "verifiedAt": "2026-06-21", "confidence": "community", "note": "P1 战斗模式：0x10=3v3, 0x09=单挑" },
-    "battleModeAddr2": { "source": "KOF97 金手指 / cheat dat (1emulation.com/forums/topic/4422)", "verifiedAt": "2026-06-21", "confidence": "community", "note": "P2 战斗模式：0x10=3v3, 0x09=单挑" },
-    "p1StateAddr": { "source": null, "verifiedAt": null, "confidence": "unverified", "note": "占位，需调试器校准" },
-    "p2StateAddr": { "source": null, "verifiedAt": null, "confidence": "unverified", "note": "占位，需调试器校准" },
-    "p1PowerAddr": { "source": null, "verifiedAt": null, "confidence": "unverified", "note": "占位，需调试器校准" },
-    "p2PowerAddr": { "source": null, "verifiedAt": null, "confidence": "unverified", "note": "占位，需调试器校准" }
+    "p1HealthAddr": {
+      "source": "fighting-OSD.lua (kof97) + MAME 0.288",
+      "verifiedAt": "2026-06-23",
+      "confidence": "verified",
+      "note": "P1 life offset 0x138 from player base 0x108100, read low byte"
+    },
+    "p2HealthAddr": {
+      "source": "fighting-OSD.lua (kof97) + MAME 0.288",
+      "verifiedAt": "2026-06-23",
+      "confidence": "verified",
+      "note": "P2 life offset 0x138 from player base 0x108300 (space=0x200), read low byte"
+    },
+    "p1XAddr": {
+      "source": "MAME 调试器扫描 0x108000-0x108A00",
+      "verifiedAt": "2026-06-21",
+      "confidence": "verified",
+      "note": "有符号 16-bit，战斗初始约 24592"
+    },
+    "p2XAddr": {
+      "source": "MAME 调试器扫描 0x108000-0x108A00",
+      "verifiedAt": "2026-06-21",
+      "confidence": "verified",
+      "note": "有符号 16-bit，战斗初始约 18156"
+    },
+    "timeAddr": {
+      "source": "MAME 调试器 + kof97-findings.md",
+      "verifiedAt": "2026-06-21",
+      "confidence": "verified",
+      "note": "96 开始递减；写入会触发 WORK RAM ERROR"
+    },
+    "stateAddress": {
+      "source": "Neo Geo BIOS game state register",
+      "verifiedAt": "2026-06-22",
+      "confidence": "community",
+      "note": "0x10A5F4 is the Neo Geo BIOS game state byte (1=title, 4=select, 8=fight)"
+    },
+    "battleModeAddr1": {
+      "source": "KOF97 金手指 / cheat dat (1emulation.com/forums/topic/4422)",
+      "verifiedAt": "2026-06-21",
+      "confidence": "community",
+      "note": "P1 战斗模式：0x10=3v3, 0x09=单挑"
+    },
+    "battleModeAddr2": {
+      "source": "KOF97 金手指 / cheat dat (1emulation.com/forums/topic/4422)",
+      "verifiedAt": "2026-06-21",
+      "confidence": "community",
+      "note": "P2 战斗模式：0x10=3v3, 0x09=单挑"
+    },
+    "p1StateAddr": {
+      "source": null,
+      "verifiedAt": null,
+      "confidence": "unverified",
+      "note": "占位，需调试器校准"
+    },
+    "p2StateAddr": {
+      "source": null,
+      "verifiedAt": null,
+      "confidence": "unverified",
+      "note": "占位，需调试器校准"
+    },
+    "p1PowerAddr": {
+      "source": null,
+      "verifiedAt": null,
+      "confidence": "unverified",
+      "note": "占位，需调试器校准"
+    },
+    "p2PowerAddr": {
+      "source": null,
+      "verifiedAt": null,
+      "confidence": "unverified",
+      "note": "占位，需调试器校准"
+    }
   },
   "teamSize": 3,
   "p1InputMap": {
@@ -103,12 +167,37 @@
     "COIN2": 2
   },
   "characters": [
-    "Kyo", "Benimaru", "Daimon", "Terry", "Andy", "Joe",
-    "Ryo", "Robert", "Yuri", "Leona", "Ralf", "Clark",
-    "Athena", "Kensou", "Chin", "Chizuru", "Mai", "King",
-    "Kim", "Chang", "Choi", "Yashiro", "Shermie", "Chris",
-    "Iori", "Shingo", "Orochi Iori", "Orochi Leona", "Orochi Yashiro",
-    "Orochi Shermie", "Orochi Chris"
+    "Kyo",
+    "Benimaru",
+    "Daimon",
+    "Terry",
+    "Andy",
+    "Joe",
+    "Ryo",
+    "Robert",
+    "Yuri",
+    "Leona",
+    "Ralf",
+    "Clark",
+    "Athena",
+    "Kensou",
+    "Chin",
+    "Chizuru",
+    "Mai",
+    "King",
+    "Kim",
+    "Chang",
+    "Choi",
+    "Yashiro",
+    "Shermie",
+    "Chris",
+    "Iori",
+    "Shingo",
+    "Orochi Iori",
+    "Orochi Leona",
+    "Orochi Yashiro",
+    "Orochi Shermie",
+    "Orochi Chris"
   ],
   "selectConfig": {
     "p1CursorStartX": 0,
@@ -120,12 +209,38 @@
   },
   "combos": {
     "power_wave": [
-      { "buttons": ["DOWN", "RIGHT"], "duration": 3, "delay": 0 },
-      { "buttons": ["BUTTON1"], "duration": 5, "delay": 0 }
+      {
+        "buttons": [
+          "DOWN",
+          "RIGHT"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "BUTTON1"
+        ],
+        "duration": 5,
+        "delay": 0
+      }
     ],
     "rising_tackle": [
-      { "buttons": ["DOWN"], "duration": 3, "delay": 0 },
-      { "buttons": ["UP", "BUTTON1"], "duration": 5, "delay": 0 }
+      {
+        "buttons": [
+          "DOWN"
+        ],
+        "duration": 3,
+        "delay": 0
+      },
+      {
+        "buttons": [
+          "UP",
+          "BUTTON1"
+        ],
+        "duration": 5,
+        "delay": 0
+      }
     ]
   }
 }

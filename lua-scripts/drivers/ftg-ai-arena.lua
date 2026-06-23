@@ -24,8 +24,11 @@ FtgAiArena.__index = FtgAiArena
 local DEFAULT_CONTROLLABLE_STATES = { 0x00, 0x01, 0x02 }
 
 -- AI 行为循环周期（帧）
-local AI_CYCLE_FRAMES = 120
-local STRATEGY_TTL_FRAMES = 120
+local AI_CYCLE_FRAMES = 60
+local STRATEGY_TTL_FRAMES = 60
+
+-- KOF97 攻击按钮池
+local KOF97_ATTACK_BUTTONS = {"BUTTON1", "BUTTON2", "BUTTON3", "BUTTON4"} -- A, B, C, D
 
 -- 加载日志模块（与 automation.lua 共用同一 logger 配置）
 local Logger = require("utils.logger")
@@ -160,6 +163,10 @@ function FtgAiArena:moveAway(player)
 end
 
 function FtgAiArena:attack(player, button)
+  if not button and self.gameId == "kof97" then
+    -- KOF97: 随机使用 A/B/C/D 增加战斗变化
+    button = KOF97_ATTACK_BUTTONS[math.random(1, 4)]
+  end
   button = button or "BUTTON1"
   self.input:attack(player, button, 6)
 end
@@ -349,30 +356,20 @@ function FtgAiArena:_runPlayerAi(player, frameCount)
   local phase = self.aiTimer % AI_CYCLE_FRAMES
 
   if dist > attackDist then
-    -- 距离远：双向靠近
+    -- 距离远：跑动靠近，不再频繁跳跃（避免跳过头）
     self:moveToward(player)
   else
-    -- 距离近：循环战术
-    if phase < 20 then
-      -- 阶段 1：防御（拉后）
+    -- 距离近：攻击主导循环（60帧周期）
+    -- 减少防御和拉开，增加连续攻击时间，解决"瞎跑"
+    if phase < 40 then
+      -- 阶段 1：连续攻击（66.7%时间）— 增加攻击频率
+      self:attack(player, nil)
+    elseif phase < 50 then
+      -- 阶段 2：防御/拉后（16.7%时间）— 减少防御时间
       self:defend(player)
-    elseif phase < 40 then
-      -- 阶段 2：轻攻击
-      self:attack(player, "BUTTON1")
-    elseif phase < 60 then
-      -- 阶段 3：防御
-      self:defend(player)
-    elseif phase < 80 then
-      -- 阶段 4：概率放必杀
-      if math.random(1, 10) > 7 then
-        local comboName = self:_chooseSpecialForPlayer(player)
-        if comboName then
-          self:queueSpecial(player, comboName)
-        end
-      end
     else
-      -- 阶段 5：拉开距离
-      self:moveAway(player)
+      -- 阶段 3：继续攻击（16.7%时间）
+      self:attack(player, nil)
     end
   end
 end
