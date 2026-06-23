@@ -5,7 +5,7 @@ services:
   market-data:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.base
+      dockerfile: docker/Dockerfile.market-data
     container_name: luafighter-market
     command: ["node", "packages/market-data/dist/index.js"]
     ports:
@@ -21,11 +21,11 @@ services:
       timeout: 5s
       retries: 3
 
-  # 对局管理器 + MAME 实例池
+  # 对局管理器 + MAME 实例池（唯一需要 MAME 的服务）
   match-manager:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.base
+      dockerfile: docker/Dockerfile.match-manager
     container_name: luafighter-manager
     command: ["bash", "/app/scripts/docker-entry-match-manager.sh"]
     ports:
@@ -57,7 +57,7 @@ services:
   media-streamer:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.base
+      dockerfile: docker/Dockerfile.media-streamer
     container_name: luafighter-media
     command: ["node", "packages/media-streamer/dist/index.js"]
     ports:
@@ -94,14 +94,15 @@ services:
     networks:
       - luafighter-net
 
-  # React 前端 (Nginx)
+  # React 前端 (Nginx) - 直接使用宿主机的 dist 目录
   frontend:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.frontend
+    image: nginx:alpine
     container_name: luafighter-web
     ports:
       - "80:80"
+    volumes:
+      - ../packages/frontend/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - match-manager
       - mediamtx

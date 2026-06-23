@@ -1,0 +1,47 @@
+# LuaFighter 媒体推流服务 - 多阶段构建
+# 阶段1：构建（安装 devDependencies + 编译 TypeScript）
+# 阶段2：运行（只保留生产依赖 + dist 文件）
+
+# ========== 阶段1：构建 ==========
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+# 创建简化的根配置
+RUN echo '{"name":"luafighter","workspaces":["packages/shared-types","packages/media-streamer"],"private":true}' > package.json
+COPY tsconfig.json ./
+
+# 复制源码
+COPY packages/shared-types ./packages/shared-types
+COPY packages/media-streamer ./packages/media-streamer
+
+# 安装所有依赖（包括 devDependencies）并构建
+RUN npm install --no-audit --no-fund --ignore-scripts && \
+    npm run build --workspaces
+
+# ========== 阶段2：运行 ==========
+FROM node:24-alpine
+
+# 安装 FFmpeg + curl
+RUN apk add --no-cache ffmpeg curl
+
+WORKDIR /app
+
+# 创建简化的根配置
+RUN echo '{"name":"luafighter","workspaces":["packages/shared-types","packages/media-streamer"],"private":true}' > package.json
+COPY tsconfig.json ./
+
+# 只复制 package.json（用于安装生产依赖）
+COPY packages/shared-types/package.json ./packages/shared-types/package.json
+COPY packages/media-streamer/package.json ./packages/media-streamer/package.json
+
+# 只安装生产依赖
+RUN npm install --omit=dev --no-audit --no-fund --ignore-scripts
+
+# 从 builder 阶段复制构建产物
+COPY --from=builder /app/packages/shared-types/dist ./packages/shared-types/dist
+COPY --from=builder /app/packages/media-streamer/dist ./packages/media-streamer/dist
+
+EXPOSE 9005
+
+CMD ["node", "packages/media-streamer/dist/index.js"]

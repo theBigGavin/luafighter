@@ -183,8 +183,8 @@ export class StreamManager {
       rtmpUrl,
       width: 384,              // KOF97 街机原生分辨率
       height: 224,
-      fps: 60,                 // 街机满帧 60 FPS
-      bitrate: '2500k',        // 适当提高码率适配 60fps
+      fps: 30,                 // 降低帧率到 30 FPS，减少 CPU 占用
+      bitrate: '1500k',        // 帧率降低，码率同步降低
     };
 
     const streamer = new FFmpegStreamer(config, {

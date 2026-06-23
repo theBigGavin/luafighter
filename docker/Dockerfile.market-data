@@ -1,0 +1,18 @@
+FROM node:24-alpine
+
+WORKDIR /app
+
+# 创建简化的根配置（只包含需要的 workspaces，避免解析全部包）
+RUN echo '{"name":"luafighter","workspaces":["packages/shared-types","packages/market-data"],"private":true}' > package.json
+COPY tsconfig.json ./
+
+# 复制源码
+COPY packages/shared-types ./packages/shared-types
+COPY packages/market-data ./packages/market-data
+
+# 安装依赖并构建（只处理指定的两个 workspace）
+RUN npm install && npm run build --workspaces
+
+EXPOSE 9001 9002
+
+CMD ["node", "packages/market-data/dist/index.js"]
