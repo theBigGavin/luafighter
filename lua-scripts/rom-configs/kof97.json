@@ -22,8 +22,8 @@
     "ko": 10,
     "win": 11
   },
-  "p1HealthAddr": "0x108239",
-  "p2HealthAddr": "0x108439",
+  "p1HealthAddr": "0x108238",
+  "p2HealthAddr": "0x108438",
   "p1XAddr": "0x108302",
   "p2XAddr": "0x108502",
   "timeAddr": "0x10A83A",
@@ -45,8 +45,8 @@
   "bios": "unibios40",
   "controllableStates": [0, 1, 2],
   "addressMeta": {
-    "p1HealthAddr": { "source": "cheat0279/kof97.xml + MAME 0.288 实测", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "满血 103 (0x67)" },
-    "p2HealthAddr": { "source": "cheat0279/kof97.xml + MAME 0.288 实测", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "满血 103 (0x67)" },
+    "p1HealthAddr": { "source": "fighting-OSD.lua (kof97) + MAME 0.288", "verifiedAt": "2026-06-23", "confidence": "verified", "note": "P1 life offset 0x138 from player base 0x108100, read low byte" },
+    "p2HealthAddr": { "source": "fighting-OSD.lua (kof97) + MAME 0.288", "verifiedAt": "2026-06-23", "confidence": "verified", "note": "P2 life offset 0x138 from player base 0x108300 (space=0x200), read low byte" },
     "p1XAddr": { "source": "MAME 调试器扫描 0x108000-0x108A00", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "有符号 16-bit，战斗初始约 24592" },
     "p2XAddr": { "source": "MAME 调试器扫描 0x108000-0x108A00", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "有符号 16-bit，战斗初始约 18156" },
     "timeAddr": { "source": "MAME 调试器 + kof97-findings.md", "verifiedAt": "2026-06-21", "confidence": "verified", "note": "96 开始递减；写入会触发 WORK RAM ERROR" },
@@ -84,10 +84,10 @@
     "COIN": "P2_COIN"
   },
   "neogeoInputPorts": {
-    "coin": ":AUDIO_COIN",
-    "start": ":edge:joy:START",
-    "p1": ":edge:joy:JOY1",
-    "p2": ":edge:joy:JOY2"
+    "coin": "SYSTEM",
+    "start": "SYSTEM",
+    "p1": "P1",
+    "p2": "P2"
   },
   "neogeoFieldMasks": {
     "Up": 1,

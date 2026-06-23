@@ -154,27 +154,41 @@ local function installNeoGeoTaps()
   local space = cpu.spaces and cpu.spaces["program"]
   if not space then return end
 
-  -- 拦截 P1 输入寄存器 $300000
-  local ok1, tap1 = pcall(space.install_read_tap, space, 0x300000, 0x300000, "luafighter_neogeo_p1",
+  -- 使用 2 字节范围，确保 install_read_tap 接受
+  local ok1, tap1 = pcall(space.install_read_tap, space, 0x300000, 0x300001, "luafighter_neogeo_p1",
     function(offset, data, mask)
-      return NEOGEO_TAP_STATE.p1
+      if offset == 0x300000 then
+        return NEOGEO_TAP_STATE.p1
+      end
+      return data
     end)
   if ok1 and tap1 then
     NEOGEO_TAP_STATE.tapP1 = tap1
+    log:info("NeoGeo tap: P1 installed at $300000")
+  else
+    log:warn(string.format("NeoGeo tap: P1 install failed, ok=%s err=%s", tostring(ok1), tostring(tap1)))
   end
 
   -- 拦截 P2 输入寄存器 $340000
-  local ok2, tap2 = pcall(space.install_read_tap, space, 0x340000, 0x340000, "luafighter_neogeo_p2",
+  local ok2, tap2 = pcall(space.install_read_tap, space, 0x340000, 0x340001, "luafighter_neogeo_p2",
     function(offset, data, mask)
-      return NEOGEO_TAP_STATE.p2
+      if offset == 0x340000 then
+        return NEOGEO_TAP_STATE.p2
+      end
+      return data
     end)
   if ok2 and tap2 then
     NEOGEO_TAP_STATE.tapP2 = tap2
+    log:info("NeoGeo tap: P2 installed at $340000")
+  else
+    log:warn(string.format("NeoGeo tap: P2 install failed, ok=%s err=%s", tostring(ok2), tostring(tap2)))
   end
 
-  if NEOGEO_TAP_STATE.tapP1 or NEOGEO_TAP_STATE.tapP2 then
+  if NEOGEO_TAP_STATE.tapP1 and NEOGEO_TAP_STATE.tapP2 then
     NEOGEO_TAP_STATE.tapsInstalled = true
-    logMsg("[InputController] NeoGeo read_tap 安装成功 (P1=$300000, P2=$340000)")
+    log:info("NeoGeo tap: both installed successfully")
+  else
+    log:warn("NeoGeo tap: installation incomplete")
   end
 end
 
@@ -237,22 +251,35 @@ local function setPortValue(portName, value, platform)
   value = value or 0
   if platform == "neogeo" then
     local mapping = NEOGEO_FIELD_MAP and NEOGEO_FIELD_MAP[portName]
-    if not mapping then return end
+    if not mapping then
+      log:warn(string.format("setPortValue: no mapping for %s", portName))
+      return
+    end
 
     -- 方案 1：field:set_value（标准 ioport 层注入）
     local port = manager.machine.ioport.ports[mapping.portTag]
     if port then
       local field = port.fields[mapping.fieldName]
       if field then
-        pcall(field.set_value, field, value)
+        local ok = pcall(field.set_value, field, value)
+        if not ok then
+          log:warn(string.format("setPortValue: field:set_value failed for %s", portName))
+        end
+      else
+        log:warn(string.format("setPortValue: field not found for %s (fieldName=%s)", portName, mapping.fieldName))
       end
+    else
+      log:warn(string.format("setPortValue: port not found for %s (portTag=%s)", portName, mapping.portTag))
     end
 
-    -- 方案 2：install_read_tap（直接拦截 CPU 读取，绕过 BIOS 层）
-    installNeoGeoTaps()  -- 延迟安装，首次调用时初始化
-    local player = getPlayerFromPortName(portName)
-    if player then
-      setNeoGeoTapState(player, portName, value == 1)
+    -- 方案 2：install_read_tap（直接拦截 CPU 读取，仅对 P1/P2 方向/按钮有效）
+    -- Start/Coin 在 $380000 寄存器，不在 $300000/$340000，不能通过 read_tap 注入
+    if mapping.portTag == "P1" or mapping.portTag == "P2" then
+      installNeoGeoTaps()
+      local player = getPlayerFromPortName(portName)
+      if player then
+        setNeoGeoTapState(player, portName, value == 1)
+      end
     end
     return
   end

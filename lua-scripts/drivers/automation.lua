@@ -296,6 +296,12 @@ end
 local function handleFight()
   -- 使用 FTG AI Arena 帧级状态机：移动/防御/攻击/必杀
   ftgAi:updateFrame(frameCount)
+  
+  -- 每 60 帧打印一次血量，用于调试 KOF97 血量读取
+  if frameCount % 60 == 0 then
+    log:info(string.format("[Automation] FIGHT F%d P1HP=%d P2HP=%d P1X=%d P2X=%d", 
+      frameCount, p1Health or 0, p2Health or 0, p1X or 0, p2X or 0))
+  end
 
   -- 检测 KO：至少进入对战 60 帧后再判定，避免进场/加载阶段的误触发
   if koDetected then return end
