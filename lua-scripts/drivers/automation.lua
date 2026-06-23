@@ -49,9 +49,9 @@ local WS_HOST = os.getenv("LUAFIGHTER_HOST") or "localhost"
 local WS_PORT = tonumber(os.getenv("LUAFIGHTER_PORT")) or 10000
 local UPDATE_INTERVAL = tonumber(os.getenv("LUAFIGHTER_UPDATE_INTERVAL")) or 6
 
--- 加载 ROM 配置
+-- 加载 ROM 配置（使用 projectPath 绝对路径，避免 MAME cwd 为 romsDir 时找不到文件）
 local romConfig = nil
-local configPath = "lua-scripts/rom-configs/" .. ROM_NAME .. ".json"
+local configPath = projectPath .. "/lua-scripts/rom-configs/" .. ROM_NAME .. ".json"
 local configFile = io.open(configPath, "r")
 if configFile then
   local content = configFile:read("*a")
