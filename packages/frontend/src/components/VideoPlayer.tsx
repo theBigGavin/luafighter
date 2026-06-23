@@ -43,11 +43,6 @@ export default function VideoPlayer({ hlsUrl, roomId }: VideoPlayerProps) {
       maxMaxBufferLength: 10,
       liveSyncDurationCount: 3,
       liveMaxLatencyDurationCount: 6,
-      // 避免浏览器把直播 m3u8 / playlist 当成静态文件缓存
-      xhrSetup: (xhr) => {
-        xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        xhr.setRequestHeader('Pragma', 'no-cache');
-      },
     });
 
     hlsRef.current = hls;
