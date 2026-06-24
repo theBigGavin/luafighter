@@ -181,15 +181,10 @@ export class StreamManager {
       roomId,
       display,
       rtmpUrl,
-    const config: StreamConfig = {
-      roomId,
-      display,
-      rtmpUrl,
       width: 384,
       height: 224,
-      fps: 60,                 // 街机满帧 60 FPS
-      bitrate: '2500k',        // 适当提高码率适配 60fps
-    };
+      fps: 60,
+      bitrate: '2500k',
     };
 
     const streamer = new FFmpegStreamer(config, {
