@@ -138,15 +138,20 @@ export class FFmpegStreamer {
 
     const outputArgs: string[] = [
       '-vcodec', 'libx264',
-      '-preset', 'veryfast',
+      '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
       '-b:v', bitrate,
-      '-bufsize', '2000k',
-      '-g', '30',
+      '-maxrate', bitrate,
+      '-bufsize', '200k',       // 减小缓冲区，降低延迟累积
+      '-g', '1',                // 每帧都是关键帧，消除 GOP 延迟
+      '-keyint_min', '1',
+      '-sc_threshold', '0',     // 禁用场景切换关键帧，强制固定 GOP
       '-pix_fmt', 'yuv420p',
       '-acodec', 'aac',
-      '-b:a', '96k',
+      '-b:a', '128k',
       '-ar', '48000',
       '-ac', '2',
+      '-threads', '4',          // 利用多线程加速编码
       '-f', 'flv',
       rtmpUrl,
     ];
@@ -176,10 +181,15 @@ export class StreamManager {
       roomId,
       display,
       rtmpUrl,
+    const config: StreamConfig = {
+      roomId,
+      display,
+      rtmpUrl,
       width: 384,
       height: 224,
-      fps: 15,
-      bitrate: '1000k',
+      fps: 60,                 // 街机满帧 60 FPS
+      bitrate: '2500k',        // 适当提高码率适配 60fps
+    };
     };
 
     const streamer = new FFmpegStreamer(config, {
