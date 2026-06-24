@@ -137,15 +137,17 @@ export class FFmpegStreamer {
     }
 
     const outputArgs: string[] = [
+      '-vf', 'scale=960:540:flags=neighbor',  // 放大到 540p，减轻编码压力
       '-vcodec', 'libx264',
       '-preset', 'ultrafast',
       '-tune', 'zerolatency',
       '-b:v', bitrate,
       '-maxrate', bitrate,
       '-bufsize', '200k',       // 减小缓冲区，降低延迟累积
-      '-g', '1',                // 每帧都是关键帧，消除 GOP 延迟
-      '-keyint_min', '1',
+      '-g', '30',                // 30fps GOP，平衡延迟和 HLS 兼容性
+      '-keyint_min', '30',
       '-sc_threshold', '0',     // 禁用场景切换关键帧，强制固定 GOP
+      '-r', '30',               // 强制输出30fps
       '-pix_fmt', 'yuv420p',
       '-acodec', 'aac',
       '-b:a', '128k',
@@ -181,9 +183,9 @@ export class StreamManager {
       roomId,
       display,
       rtmpUrl,
-      width: 384,
-      height: 224,
-      fps: 60,
+      width: 768,
+      height: 448,
+      fps: 30,
       bitrate: '2500k',
     };
 

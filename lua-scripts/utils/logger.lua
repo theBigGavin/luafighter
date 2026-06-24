@@ -97,9 +97,9 @@ function Logger:log(level, msg)
     fd:close()
   end
 
-  -- ERROR 级别同时输出到 stdout，方便 MAME 子进程捕获
-  if level >= LEVELS.ERROR then
-    print("[ERROR] " .. line)
+  -- INFO 及以上级别同时输出到 stdout，方便 MAME 子进程捕获和 Docker logs 查看
+  if level >= LEVELS.INFO then
+    print(line)
   end
 end
 

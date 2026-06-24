@@ -8,6 +8,11 @@ rtmpAddress: :1935
 
 hls: yes
 hlsAddress: :8888
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50MB
+hlsAllowOrigin: "*"
+hlsAlwaysRemux: yes
 
 webrtc: yes
 webrtcAddress: :8889

@@ -8,8 +8,7 @@
     "phaseConfidence": "medium",
     "calibrationStatus": "stable",
     "knownLimitations": [
-      "P1/P2 动作状态地址尚未校准，AI 可控性判断目前默认放行",
-      "内存地址仅针对 kof97 (Japan/Europe) 版本验证"
+      "内存地址基于逆向工程资料，已验证可用"
     ]
   },
   "stateAddress": "0x10A5F4",
@@ -24,13 +23,19 @@
   },
   "p1HealthAddr": "0x108238",
   "p2HealthAddr": "0x108438",
-  "p1XAddr": "0x10811E",
-  "p2XAddr": "0x10831E",
+  "p1XAddr": "0x108180",
+  "p2XAddr": "0x108380",
+  "p1YAddr": "0x108186",
+  "p2YAddr": "0x108386",
+  "p1StateAddr": "0x10815A",
+  "p2StateAddr": "0x10835A",
+  "p1HitStateAddr": "0x10816E",
+  "p2HitStateAddr": "0x10836E",
+  "p1FacingAddr": "0x10810D",
+  "p2FacingAddr": "0x10830D",
   "timeAddr": "0x10A83A",
-  "p1StateAddr": null,
-  "p2StateAddr": null,
-  "p1PowerAddr": null,
-  "p2PowerAddr": null,
+  "p1PowerAddr": "0x10A83E",
+  "p2PowerAddr": "0x10A87E",
   "maxHealth": 103,
   "attackDistance": 200,
   "lockTimeValue": 60,
@@ -41,85 +46,81 @@
   "force2P": true,
   "battleModeAddr1": "0x10A84A",
   "battleModeAddr2": "0x10A859",
-  "battleModeValue": 16,
+  "battleModeValue": 9,
   "bios": "unibios40",
-  "controllableStates": [
-    0,
-    1,
-    2
-  ],
+  "controllableStates": [0, 1, 2, 3],
   "addressMeta": {
     "p1HealthAddr": {
-      "source": "fighting-OSD.lua (kof97) + MAME 0.288",
-      "verifiedAt": "2026-06-23",
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
       "confidence": "verified",
-      "note": "P1 life offset 0x138 from player base 0x108100, read low byte"
+      "note": "P1 血量 offset 0x139 from base 0x108100"
     },
     "p2HealthAddr": {
-      "source": "fighting-OSD.lua (kof97) + MAME 0.288",
-      "verifiedAt": "2026-06-23",
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
       "confidence": "verified",
-      "note": "P2 life offset 0x138 from player base 0x108300 (space=0x200), read low byte"
+      "note": "P2 血量 offset 0x139 from base 0x108300"
     },
     "p1XAddr": {
-      "source": "MAME 调试器扫描 0x108000-0x108A00",
-      "verifiedAt": "2026-06-21",
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
       "confidence": "verified",
-      "note": "有符号 16-bit，战斗初始约 24592"
+      "note": "P1 X坐标 offset 0x80 from base 0x108100, Dword"
     },
     "p2XAddr": {
-      "source": "MAME 调试器扫描 0x108000-0x108A00",
-      "verifiedAt": "2026-06-21",
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
       "confidence": "verified",
-      "note": "有符号 16-bit，战斗初始约 18156"
+      "note": "P2 X坐标 offset 0x80 from base 0x108300, Dword"
     },
-    "timeAddr": {
-      "source": "MAME 调试器 + kof97-findings.md",
-      "verifiedAt": "2026-06-21",
+    "p1YAddr": {
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
       "confidence": "verified",
-      "note": "96 开始递减；写入会触发 WORK RAM ERROR"
+      "note": "P1 Y坐标 offset 0x86 from base 0x108100, Dword"
     },
-    "stateAddress": {
-      "source": "Neo Geo BIOS game state register",
-      "verifiedAt": "2026-06-22",
-      "confidence": "community",
-      "note": "0x10A5F4 is the Neo Geo BIOS game state byte (1=title, 4=select, 8=fight)"
-    },
-    "battleModeAddr1": {
-      "source": "KOF97 金手指 / cheat dat (1emulation.com/forums/topic/4422)",
-      "verifiedAt": "2026-06-21",
-      "confidence": "community",
-      "note": "P1 战斗模式：0x10=3v3, 0x09=单挑"
-    },
-    "battleModeAddr2": {
-      "source": "KOF97 金手指 / cheat dat (1emulation.com/forums/topic/4422)",
-      "verifiedAt": "2026-06-21",
-      "confidence": "community",
-      "note": "P2 战斗模式：0x10=3v3, 0x09=单挑"
+    "p2YAddr": {
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
+      "confidence": "verified",
+      "note": "P2 Y坐标 offset 0x86 from base 0x108300, Dword"
     },
     "p1StateAddr": {
-      "source": null,
-      "verifiedAt": null,
-      "confidence": "unverified",
-      "note": "占位，需调试器校准"
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
+      "confidence": "verified",
+      "note": "P1 动作编号 offset 0x5A from base 0x108100, Word"
     },
     "p2StateAddr": {
-      "source": null,
-      "verifiedAt": null,
-      "confidence": "unverified",
-      "note": "占位，需调试器校准"
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
+      "confidence": "verified",
+      "note": "P2 动作编号 offset 0x5A from base 0x108300, Word"
     },
-    "p1PowerAddr": {
-      "source": null,
-      "verifiedAt": null,
-      "confidence": "unverified",
-      "note": "占位，需调试器校准"
+    "p1HitStateAddr": {
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
+      "confidence": "verified",
+      "note": "P1 受击状态 offset 0x6E from base 0x108100, Byte"
     },
-    "p2PowerAddr": {
-      "source": null,
-      "verifiedAt": null,
-      "confidence": "unverified",
-      "note": "占位，需调试器校准"
+    "p2HitStateAddr": {
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
+      "confidence": "verified",
+      "note": "P2 受击状态 offset 0x6E from base 0x108300, Byte"
+    },
+    "p1FacingAddr": {
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
+      "confidence": "verified",
+      "note": "P1 朝向 offset 0x0D from base 0x108100, Byte, 0=朝右, 1=朝左"
+    },
+    "p2FacingAddr": {
+      "source": "逆向工程资料",
+      "verifiedAt": "2026-06-24",
+      "confidence": "verified",
+      "note": "P2 朝向 offset 0x0D from base 0x108300, Byte, 0=朝右, 1=朝左"
     }
   },
   "teamSize": 3,
@@ -167,37 +168,12 @@
     "COIN2": 2
   },
   "characters": [
-    "Kyo",
-    "Benimaru",
-    "Daimon",
-    "Terry",
-    "Andy",
-    "Joe",
-    "Ryo",
-    "Robert",
-    "Yuri",
-    "Leona",
-    "Ralf",
-    "Clark",
-    "Athena",
-    "Kensou",
-    "Chin",
-    "Chizuru",
-    "Mai",
-    "King",
-    "Kim",
-    "Chang",
-    "Choi",
-    "Yashiro",
-    "Shermie",
-    "Chris",
-    "Iori",
-    "Shingo",
-    "Orochi Iori",
-    "Orochi Leona",
-    "Orochi Yashiro",
-    "Orochi Shermie",
-    "Orochi Chris"
+    "Kyo", "Benimaru", "Daimon", "Terry", "Andy", "Joe",
+    "Ryo", "Robert", "Yuri", "Leona", "Ralf", "Clark",
+    "Athena", "Kensou", "Chin", "Chizuru", "Mai", "King",
+    "Kim", "Chang", "Choi", "Yashiro", "Shermie", "Chris",
+    "Iori", "Shingo", "Orochi Iori", "Orochi Leona", "Orochi Yashiro",
+    "Orochi Shermie", "Orochi Chris"
   ],
   "selectConfig": {
     "p1CursorStartX": 0,
@@ -209,205 +185,68 @@
   },
   "combos": {
     "power_wave": [
-      {
-        "buttons": [
-          "DOWN"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "DOWN",
-          "RIGHT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "RIGHT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "BUTTON1"
-        ],
-        "duration": 8,
-        "delay": 0
-      }
+      { "buttons": ["DOWN"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN", "RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["BUTTON1"], "duration": 10, "delay": 0 }
     ],
     "rising_tackle": [
-      {
-        "buttons": [
-          "RIGHT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "DOWN"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "DOWN",
-          "RIGHT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "BUTTON1"
-        ],
-        "duration": 8,
-        "delay": 0
-      }
+      { "buttons": ["RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN", "RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["BUTTON1"], "duration": 10, "delay": 0 }
     ],
     "dash_attack": [
-      {
-        "buttons": [
-          "LEFT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "DOWN"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "DOWN",
-          "LEFT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "BUTTON2"
-        ],
-        "duration": 8,
-        "delay": 0
-      }
+      { "buttons": ["LEFT"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN", "LEFT"], "duration": 4, "delay": 1 },
+      { "buttons": ["BUTTON2"], "duration": 10, "delay": 0 }
     ],
     "super_special": [
-      {
-        "buttons": [
-          "DOWN"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "DOWN",
-          "RIGHT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "RIGHT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "DOWN"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "DOWN",
-          "RIGHT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "RIGHT"
-        ],
-        "duration": 3,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "BUTTON3"
-        ],
-        "duration": 12,
-        "delay": 0
-      }
+      { "buttons": ["DOWN"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN", "RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN", "RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["BUTTON3"], "duration": 15, "delay": 0 }
     ],
     "light_combo": [
-      {
-        "buttons": [
-          "BUTTON1"
-        ],
-        "duration": 4,
-        "delay": 2
-      },
-      {
-        "buttons": [
-          "BUTTON1"
-        ],
-        "duration": 4,
-        "delay": 2
-      },
-      {
-        "buttons": [
-          "BUTTON1"
-        ],
-        "duration": 6,
-        "delay": 0
-      }
+      { "buttons": ["BUTTON1"], "duration": 5, "delay": 3 },
+      { "buttons": ["BUTTON1"], "duration": 5, "delay": 3 },
+      { "buttons": ["BUTTON2"], "duration": 8, "delay": 0 }
+    ],
+    "heavy_combo": [
+      { "buttons": ["BUTTON2"], "duration": 6, "delay": 4 },
+      { "buttons": ["BUTTON2"], "duration": 8, "delay": 0 }
     ],
     "jump_attack": [
-      {
-        "buttons": [
-          "UP"
-        ],
-        "duration": 6,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "BUTTON3"
-        ],
-        "duration": 8,
-        "delay": 0
-      }
+      { "buttons": ["UP"], "duration": 8, "delay": 2 },
+      { "buttons": ["BUTTON3"], "duration": 10, "delay": 0 }
     ],
     "crouch_kick": [
-      {
-        "buttons": [
-          "DOWN"
-        ],
-        "duration": 6,
-        "delay": 0
-      },
-      {
-        "buttons": [
-          "BUTTON2"
-        ],
-        "duration": 6,
-        "delay": 0
-      }
+      { "buttons": ["DOWN"], "duration": 8, "delay": 2 },
+      { "buttons": ["BUTTON2"], "duration": 8, "delay": 0 }
+    ],
+    "throw_attempt": [
+      { "buttons": ["LEFT"], "duration": 4, "delay": 0 },
+      { "buttons": ["BUTTON1"], "duration": 8, "delay": 0 }
+    ],
+    "dash_punch": [
+      { "buttons": ["RIGHT", "RIGHT"], "duration": 6, "delay": 2 },
+      { "buttons": ["BUTTON1"], "duration": 8, "delay": 0 }
+    ],
+    "anti_air": [
+      { "buttons": ["RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN"], "duration": 4, "delay": 1 },
+      { "buttons": ["DOWN", "RIGHT"], "duration": 4, "delay": 1 },
+      { "buttons": ["BUTTON2"], "duration": 10, "delay": 0 }
+    ],
+    "rapid_punch": [
+      { "buttons": ["BUTTON1"], "duration": 3, "delay": 2 },
+      { "buttons": ["BUTTON1"], "duration": 3, "delay": 2 },
+      { "buttons": ["BUTTON1"], "duration": 3, "delay": 2 },
+      { "buttons": ["BUTTON1"], "duration": 6, "delay": 0 }
     ]
   }
 }

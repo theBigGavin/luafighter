@@ -189,16 +189,33 @@ local function readU16(hexStr)
   return mem:readU16(hexStr) or 0
 end
 
+local function readU32(hexStr)
+  return mem:readU32(hexStr) or 0
+end
+
 local function readS16(hexStr)
   return mem:readS16(hexStr) or 0
 end
 
 local function readHealth()
-  local p1 = mem:readU16(romConfig.p1HealthAddr) or 0
-  local p2 = mem:readU16(romConfig.p2HealthAddr) or 0
+  local p1 = mem:readU8(romConfig.p1HealthAddr) or 0
+  local p2 = mem:readU8(romConfig.p2HealthAddr) or 0
   if p1 and p1 > MAX_HEALTH then p1 = MAX_HEALTH end
   if p2 and p2 > MAX_HEALTH then p2 = MAX_HEALTH end
   return p1 or 0, p2 or 0
+end
+
+local function readXCoord(addr)
+  if not addr then return 0 end
+  local val = mem:readU32(addr) or 0
+  -- KOF97 X 坐标是 Dword，但通常只使用低 16 位
+  if val > 0xFFFF then val = val & 0xFFFF end
+  return val
+end
+
+local function readFacing(addr)
+  if not addr then return nil end
+  return mem:readU8(addr)
 end
 
 local function detectPhase()
@@ -428,12 +445,25 @@ emu.register_periodic(function()
   -- 输入控制器每帧更新（释放过期按键）
   inputCtrl:updateFrame()
 
-  -- 读取健康值和位置（KOF97 X坐标尝试readU8，失败则readU16取低8位）
+  -- 读取健康值和位置（KOF97 X坐标使用 Dword 读取）
   p1Health, p2Health = readHealth()
-  p1X = readU8(romConfig.p1XAddr)
-  if p1X == 0 then p1X = readU16(romConfig.p1XAddr) & 0xFF end
-  p2X = readU8(romConfig.p2XAddr)
-  if p2X == 0 then p2X = readU16(romConfig.p2XAddr) & 0xFF end
+  p1X = readXCoord(romConfig.p1XAddr)
+  p2X = readXCoord(romConfig.p2XAddr)
+  local p1StateRaw = readU16(romConfig.p1StateAddr)
+  local p2StateRaw = readU16(romConfig.p2StateAddr)
+  local p1State = p1StateRaw and (p1StateRaw & 0xFF) or 0
+  local p2State = p2StateRaw and (p2StateRaw & 0xFF) or 0
+  local p1Hit = readU8(romConfig.p1HitStateAddr)
+  local p2Hit = readU8(romConfig.p2HitStateAddr)
+  local p1Face = readU8(romConfig.p1FacingAddr)
+  local p2Face = readU8(romConfig.p2FacingAddr)
+  
+  -- 每60帧打印详细状态日志（使用低字节状态）
+  if IS_NEOGEO and frameCount % 60 == 0 then
+    log:info(string.format("[State] P1: HP=%d X=%d State=%d(0x%04X) Hit=%d Face=%d | P2: HP=%d X=%d State=%d(0x%04X) Hit=%d Face=%d | Phase=%s",
+      p1Health, p1X, p1State, p1StateRaw or 0, p1Hit or 0, p1Face or 0,
+      p2Health, p2X, p2State, p2StateRaw or 0, p2Hit or 0, p2Face or 0, currentPhase))
+  end
 
   -- 读取并更新游戏阶段（多数表决平滑，但支持 fastSwitch 快速切换）
   local newPhase, meta = detectPhase()

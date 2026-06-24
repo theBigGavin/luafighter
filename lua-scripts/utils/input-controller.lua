@@ -121,8 +121,8 @@ local function buildNeoGeoFieldMap(romConfig)
   end
   add("P1", ports.p1)
   add("P2", ports.p2)
-  map["P1_START"] = { portTag = ports.start, fieldName = "1 Player Start", mask = 1 }
-  map["P2_START"] = { portTag = ports.start, fieldName = "2 Players Start", mask = 4 }
+  map["P1_START"] = { portTag = ports.start, fieldName = "1 Player Start", mask = 1 }   -- bit0
+  map["P2_START"] = { portTag = ports.start, fieldName = "2 Players Start", mask = 2 }  -- bit1 (P2 Start在NeoGeo $380000中为bit1)
   map["P1_COIN"] = { portTag = ports.coin, fieldName = "Coin 1", mask = masks.COIN or 1 }
   map["P2_COIN"] = { portTag = ports.coin, fieldName = "Coin 2", mask = masks.COIN2 or 2 }
   NEOGEO_FIELD_MAP = map
@@ -228,13 +228,19 @@ local function installNeoGeoTaps()
   end
 
   -- 拦截 SYSTEM 输入寄存器 $380000 (Start 键)
-  -- 注意：$380000 包含 Cheat 菜单检测位，read_tap 可能误触发 Cheat 菜单
-  -- 暂时禁用，使用 field:set_value 注入 Start 键
-  --[[
+  -- NeoGeo $380000 位映射: bit0=P1 Start, bit1=P2 Start, bit2=SELECT, bit3+=其他
+  -- 安全：只修改 Start 位（bit0 mask=1, bit1 mask=2），不修改其他位（避免触发Cheat菜单）
   local ok3, tap3 = pcall(space.install_read_tap, space, 0x380000, 0x380001, "luafighter_neogeo_system",
     function(offset, data, mask)
       if offset == 0x380000 then
-        return data & NEOGEO_TAP_STATE.system
+        -- 只修改 Start 位，保持其他位不变
+        -- NeoGeo $380000: bit0=P1 Start, bit1=P2 Start
+        -- 不修改 bit2+（避免触发Cheat菜单/系统功能）
+        local startMask = 0x03  -- P1 Start (bit0 mask=1) + P2 Start (bit1 mask=2)
+        -- 从 NEOGEO_TAP_STATE.system 中提取 Start 位状态
+        local startPressed = (~NEOGEO_TAP_STATE.system) & startMask
+        -- 清零 Start 位（如果按下），保持其他位不变
+        return data & ~startPressed
       end
       return data
     end)
@@ -244,11 +250,10 @@ local function installNeoGeoTaps()
   else
     log:warn(string.format("NeoGeo tap: SYSTEM install failed, ok=%s err=%s", tostring(ok3), tostring(tap3)))
   end
-  --]]
 
-  if NEOGEO_TAP_STATE.tapP1 and NEOGEO_TAP_STATE.tapP2 then
+  if NEOGEO_TAP_STATE.tapP1 and NEOGEO_TAP_STATE.tapP2 and NEOGEO_TAP_STATE.tapSystem then
     NEOGEO_TAP_STATE.tapsInstalled = true
-    log:info("NeoGeo tap: P1/P2 installed successfully")
+    log:info("NeoGeo tap: P1/P2/SYSTEM installed successfully")
   else
     log:warn("NeoGeo tap: installation incomplete")
   end
@@ -286,10 +291,14 @@ local function setNeoGeoTapState(player, portName, pressed)
   local mask = mapping.mask or 0
 
   -- Start 键在 SYSTEM 端口 ($380000)
+  -- 使用 mapping.mask（P1_START=1, P2_START=4）
   if portName:find("_START$") then
     local systemState = NEOGEO_TAP_STATE.system
-    -- Start 键位：P1 Start = bit 8 (0x0100), P2 Start = bit 10 (0x0400)
-    local startMask = (player == 1) and 0x0100 or 0x0400
+    local startMask = mapping.mask or 0
+    if startMask == 0 then
+      log:warn(string.format("setNeoGeoTapState: Start mask is 0 for %s", portName))
+      return
+    end
     if pressed then
       systemState = systemState & ~startMask  -- 按下：清零对应位
     else
@@ -456,48 +465,81 @@ function InputController:_getField(portIndex, fieldMask)
   return nil
 end
 
+-- 查找 DIP 端口和字段
+local function findDipPortAndField()
+  -- 尝试多种端口 tag（MAME 不同版本格式可能不同）
+  local portTags = {":DSW", "DSW", ":DSWA", "DSWA", ":DSWB", "DSWB", ":DSWC", "DSWC"}
+  -- 尝试多种字段名
+  local fieldKeywords = {"cabinet", "vs mode", "game mode", "mode", "type"}
+  
+  local okPorts, ports = pcall(function() return manager.machine.ioport.ports end)
+  if not okPorts or not ports then return nil, nil end
+  
+  -- 先列出所有可用端口和字段（用于诊断）
+  local allPorts = {}
+  for tag, p in pairs(ports) do
+    table.insert(allPorts, tag)
+  end
+  
+  for _, tag in ipairs(portTags) do
+    local port = ports[tag]
+    if port then
+      local allFields = {}
+      for fname, _ in pairs(port.fields) do
+        table.insert(allFields, fname)
+      end
+      
+      -- 尝试精确匹配 "Cabinet"
+      for fname, f in pairs(port.fields) do
+        if fname:lower() == "cabinet" then
+          log:info(string.format("[InputController] DSW found: port=%s field=%s (from ports: %s)", 
+            tag, fname, table.concat(allPorts, ",")))
+          return port, f
+        end
+      end
+      
+      -- 尝试包含关键字
+      for fname, f in pairs(port.fields) do
+        local lowerName = fname:lower()
+        for _, kw in ipairs(fieldKeywords) do
+          if lowerName:find(kw) then
+            log:info(string.format("[InputController] DSW found (fuzzy): port=%s field=%s keyword=%s", 
+              tag, fname, kw))
+            return port, f
+          end
+        end
+      end
+    end
+  end
+  
+  log:warn(string.format("[InputController] KOF97 DSW/Cabinet not found in ports: %s", 
+    table.concat(allPorts, ",")))
+  return nil, nil
+end
+
 local function setKof97VsModeDip()
   -- KOF97 的 Cabinet DIP：Normal=2, VS Mode=0（mask=2）
   -- MAME ioport tag 通常带前导冒号，如 :DSW
-  local tags = {":DSW", "DSW"}
-  local port, field
-  for _, tag in ipairs(tags) do
-    local ok, p = pcall(function() return manager.machine.ioport.ports[tag] end)
-    if ok and p then
-      port = p
-      for fname, f in pairs(port.fields) do
-        if fname:lower() == "cabinet" then
-          field = f
-          break
-        end
-      end
-      if field then break end
-    end
-  end
-
+  local port, field = findDipPortAndField()
+  
   if not port then
-    -- 诊断：列出所有 port tag，方便定位 DSW
-    local tagsList = {}
-    local okPorts, ports = pcall(function() return manager.machine.ioport.ports end)
-    if okPorts and ports then
-      for tag, _ in pairs(ports) do table.insert(tagsList, tag) end
-    end
-    logMsg("[InputController] KOF97 DSW port 未找到，已知 ports: " .. table.concat(tagsList, ","))
-    return
+    log:warn("[InputController] KOF97 DSW port 未找到，尝试内存写入后备方案")
+    return false
   end
-
+  
   if not field then
-    local names = {}
-    for fname, _ in pairs(port.fields) do table.insert(names, fname) end
-    logMsg("[InputController] KOF97 DSW port 找到但无 Cabinet field，fields: " .. table.concat(names, ","))
-    return
+    log:warn("[InputController] KOF97 DSW port 找到但无 Cabinet/Mode field")
+    return false
   end
-
-  local setOk = pcall(function() field:set_value(0) end)
+  
+  -- 尝试设置 VS Mode (value=0)
+  local setOk, setErr = pcall(function() field:set_value(0) end)
   if setOk then
-    logMsg("[InputController] KOF97 Cabinet DIP 已设为 VS Mode")
+    log:info("[InputController] KOF97 Cabinet DIP 已设为 VS Mode (value=0)")
+    return true
   else
-    logMsg("[InputController] KOF97 Cabinet DIP 设置失败")
+    log:warn(string.format("[InputController] KOF97 Cabinet DIP 设置失败: %s", tostring(setErr)))
+    return false
   end
 end
 
@@ -545,7 +587,11 @@ function InputController:initPorts()
       if ok then
         -- 确认 KOF97 的 Cabinet DIP 为 VS Mode，保证 1P vs 2P
         if self.config.rom and (self.config.rom):lower():find("kof97") then
-          setKof97VsModeDip()
+          local dipOk = setKof97VsModeDip()
+          if not dipOk then
+            -- DIP 设置失败，不再尝试内存写入（避免触发 BIOS 保护/内存检查）
+            log:warn("[InputController] DIP 设置失败，跳过内存写入（避免触发 BIOS 保护）")
+          end
         end
         self.portsInitialized = true
         return true

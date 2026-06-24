@@ -90,13 +90,50 @@ end
 function FtgAiArena:_readX(player)
   local addr = (player == 1) and self.config.p1XAddr or self.config.p2XAddr
   if not addr then return 0 end
-  -- KOF97 X坐标可能是1字节值，尝试readU8
+  -- KOF97 X 坐标是 Dword (32-bit)，使用 readU32
+  local ok, val = pcall(self.mem.readU32, self.mem, addr)
+  if ok and val and val ~= 0 then
+    -- 只使用低 16 位（KOF97 坐标范围通常只使用 16 位）
+    if val > 0xFFFF then val = val & 0xFFFF end
+    return val
+  end
+  -- 最终降级：返回默认位置，确保AI能继续运行
+  return (player == 1) and 80 or 240
+end
+
+function FtgAiArena:_readY(player)
+  local addr = (player == 1) and self.config.p1YAddr or self.config.p2YAddr
+  if not addr then return 0 end
+  local ok, val = pcall(self.mem.readU32, self.mem, addr)
+  if ok and val then
+    if val > 0xFFFF then val = val & 0xFFFF end
+    return val
+  end
+  return 0
+end
+
+function FtgAiArena:_readState(player)
+  local addr = (player == 1) and self.config.p1StateAddr or self.config.p2StateAddr
+  if not addr then return nil end
+  local ok, val = pcall(self.mem.readU16, self.mem, addr)
+  if ok and val then return val & 0xFF end
+  return nil
+end
+
+function FtgAiArena:_readHitState(player)
+  local addr = (player == 1) and self.config.p1HitStateAddr or self.config.p2HitStateAddr
+  if not addr then return nil end
   local ok, val = pcall(self.mem.readU8, self.mem, addr)
   if ok and val then return val end
-  -- 如果readU8失败，尝试readU16并取低8位
-  ok, val = pcall(self.mem.readU16, self.mem, addr)
-  if ok and val then return val & 0xFF end
-  return 0
+  return nil
+end
+
+function FtgAiArena:_readFacing(player)
+  local addr = (player == 1) and self.config.p1FacingAddr or self.config.p2FacingAddr
+  if not addr then return nil end
+  local ok, val = pcall(self.mem.readU8, self.mem, addr)
+  if ok and val then return val end
+  return nil
 end
 
 -- ============ 状态锁定 ============
@@ -130,13 +167,21 @@ end
 -- ============ 可控性判断 ============
 
 function FtgAiArena:isControllable(player)
-  local addr = (player == 1) and self.config.p1StateAddr or self.config.p2StateAddr
-  if not addr then
+  -- 使用状态地址（Word）和受击状态地址（Byte）判断可控性
+  local state = self:_readState(player)
+  local hitState = self:_readHitState(player)
+  
+  if state == nil then
     -- 未配置状态地址时默认认为可控，由上层 phase 保护
     return true
   end
-
-  local state = self:_read(addr, 1) or 0xFF
+  
+  -- 如果受击状态非零，角色处于硬直/受击/倒地状态，不可控
+  if hitState and hitState ~= 0 then
+    return false
+  end
+  
+  -- 检查状态是否在可控列表中
   local okStates = self.config.controllableStates or DEFAULT_CONTROLLABLE_STATES
   for _, s in ipairs(okStates) do
     if state == s then return true end
@@ -151,7 +196,13 @@ function FtgAiArena:getDistance()
 end
 
 -- true = 面朝右，false = 面朝左
+-- 使用朝向地址直接读取（0=朝右, 1=朝左），比通过X坐标计算更可靠
 function FtgAiArena:isFacingRight(player)
+  local facing = self:_readFacing(player)
+  if facing ~= nil then
+    return facing == 0  -- 0=朝右, 1=朝左
+  end
+  -- 降级：通过X坐标计算
   local myX = self:_readX(player)
   local otherX = self:_readX(player == 1 and 2 or 1)
   return myX < otherX
@@ -293,10 +344,17 @@ end
 function FtgAiArena:_runStrategyPlayer(player, strategy, frameCount)
   if self:isExecutingSpecial(player) then return true end
 
-  local dist = self:getDistance()
+  local rawDist = self:getDistance()
   local attackDist = self.config.attackDistance or 50
   local action = strategy.action or "neutral"
   local specialMove = strategy.specialMove
+
+  -- NeoGeo坐标归一化
+  local dist = rawDist
+  if self.gameId == "kof97" then
+    dist = math.floor(rawDist / 64)
+    attackDist = 120
+  end
 
   if specialMove and dist <= attackDist * 2 and (frameCount - (self.lastSpecialFrame[player] or 0)) >= 90 then
     if self:queueSpecial(player, specialMove) then
@@ -361,43 +419,100 @@ function FtgAiArena:_runPlayerAi(player, frameCount)
   local myHp = self:_readHealth(player)
   local enemyHp = self:_readHealth(player == 1 and 2 or 1)
   local hpDiff = myHp - enemyHp
-  local dist = self:getDistance()
+  local rawDist = self:getDistance()
   local attackDist = self.config.attackDistance or 50
   local phase = self.aiTimer % AI_CYCLE_FRAMES
+
+  -- NeoGeo坐标范围大，需要归一化距离
+  local dist = rawDist
+  local xReliable = true
+  if self.gameId == "kof97" then
+    -- KOF97: 原始坐标差 / 64 约等于像素距离
+    dist = math.floor(rawDist / 64)
+    attackDist = 120  -- 约2个身位
+    -- 检测坐标是否可靠（固定值表示地址不正确）
+    local x1 = self:_readX(1)
+    local x2 = self:_readX(2)
+    if x1 == 80 and x2 == 240 then
+      -- 坐标固定，标记为不可靠
+      xReliable = false
+      -- 当坐标不可靠时，不使用距离判断，直接采用持续近战策略
+      dist = attackDist -- 强制认为在攻击范围内，持续攻击
+    end
+  end
+
+  -- 详细日志：每30帧输出一次AI决策信息（避免刷屏）
+  if self.aiTimer % 30 == 0 then
+    local x1 = self:_readX(1)
+    local x2 = self:_readX(2)
+    local s1 = self:_readState(1) or -1
+    local s2 = self:_readState(2) or -1
+    local h1 = self:_readHitState(1) or -1
+    local h2 = self:_readHitState(2) or -1
+    local f1 = self:_readFacing(1) or -1
+    local f2 = self:_readFacing(2) or -1
+    log:info(string.format("[FTG AI] P%d F%d | HP:%d/%d | X:%d/%d | State:%d/%d | Hit:%d/%d | Face:%d/%d | dist=%d | reliable=%s",
+      player, frameCount, myHp, enemyHp, x1, x2, s1, s2, h1, h2, f1, f2, dist, tostring(xReliable)))
+  end
 
   -- 根据血量差调整策略
   local isDesperate = hpDiff < -20
   local isAggressive = hpDiff > -10
 
-  -- 距离远：全力靠近（不攻击，只移动）
-  if dist > attackDist then
+  -- 关键修复：当坐标不可靠时，采用不依赖距离的纯近战策略
+  if not xReliable then
+    -- 坐标不可靠 → 持续靠近+高频攻击，不依赖距离判断
+    -- 每帧都尝试靠近，每帧都攻击（游戏引擎会处理攻击动画）
     self:moveToward(player)
-    return
-  end
-
-  -- 距离中等（8000-12000）：前进+攻击（边走边打）
-  if dist > 8000 then
-    self:moveToward(player)
-    if phase % 5 == 0 then
-      self:attack(player, nil)
+    -- 同时按下攻击键（与方向键在同一帧）
+    self:attack(player, nil)
+    -- 每30帧尝试一次连招
+    if phase % 30 == 0 then
+      self:_trySpecialMove(player, dist, frameCount, isDesperate, xReliable)
     end
     return
   end
 
-  -- 距离近（<8000）：攻击主导，所有阶段都攻击（不防御）
-  -- 减少防御时间，给双方更多反击机会
-  if phase % 10 == 0 then
-    -- 每10帧尝试一次连招
-    self:_trySpecialMove(player, dist, frameCount, isDesperate)
+  -- 坐标可靠时的正常逻辑
+  -- 距离远（>2个身位）：全力靠近
+  if dist > attackDist * 2 then
+    self:moveToward(player)
+    if self.aiTimer % 30 == 0 then
+      log:info(string.format("[FTG AI] P%d far: moveToward (dist=%d > %d)", player, dist, attackDist * 2))
+    end
+    return
+  end
+
+  -- 距离中等（1-2个身位）：前进+攻击（边走边打）
+  if dist > attackDist then
+    self:moveToward(player)
+    if phase % 4 == 0 then
+      self:attack(player, nil)
+    end
+    if self.aiTimer % 30 == 0 then
+      log:info(string.format("[FTG AI] P%d mid: moveToward+attack (dist=%d > %d)", player, dist, attackDist))
+    end
+    return
+  end
+
+  -- 距离近（<1个身位）：攻击主导，偶尔尝试连招
+  if phase % 8 == 0 then
+    -- 每8帧尝试一次连招
+    self:_trySpecialMove(player, dist, frameCount, isDesperate, xReliable)
   else
     -- 持续攻击+前进（边走边打）
     self:moveToward(player)
     self:attack(player, nil)
   end
+  if self.aiTimer % 30 == 0 then
+    log:info(string.format("[FTG AI] P%d close: attack+combo (dist=%d <= %d)", player, dist, attackDist))
+  end
 end
 
 -- 尝试释放特殊技/连招
-function FtgAiArena:_trySpecialMove(player, dist, frameCount, isDesperate)
+-- xReliable: 坐标是否可靠（false时优先使用近身连招）
+function FtgAiArena:_trySpecialMove(player, dist, frameCount, isDesperate, xReliable)
+  xReliable = xReliable ~= false
   local lastSpecial = self.lastSpecialFrame[player] or 0
   local cooldown = isDesperate and 30 or 60
   if (frameCount - lastSpecial) < cooldown then
@@ -416,42 +531,71 @@ function FtgAiArena:_trySpecialMove(player, dist, frameCount, isDesperate)
   end
 
   -- 根据距离和策略选择连招
+  -- 当坐标不可靠时，优先使用近身连招（light_combo, heavy_combo, rapid_punch, crouch_kick）
   local availableCombos = {}
   for _, name in ipairs(comboNames) do
-    -- 超必杀只在拼命模式且冷却足够时尝试
     if name == "super_special" then
+      -- 超必杀只在拼命模式且冷却足够时尝试
       if isDesperate and (frameCount - lastSpecial) >= 90 then
         table.insert(availableCombos, name)
       end
-    -- 跳跃攻击在距离适中时
     elseif name == "jump_attack" then
-      if dist > 5000 and dist < 15000 then
+      -- 跳跃攻击在中距离时
+      if dist > 50 and dist < 200 then
         table.insert(availableCombos, name)
       end
-    -- 气功波/升龙在距离较远时
-    elseif name == "power_wave" or name == "rising_tackle" then
-      if dist > 8000 then
+    elseif name == "power_wave" or name == "rising_tackle" or name == "anti_air" then
+      -- 远程技能只在坐标可靠且距离较远时
+      if xReliable and dist > 150 then
         table.insert(availableCombos, name)
       end
-    -- 其他连招（light_combo, dash_attack, crouch_kick）在近身时使用
+    elseif name == "dash_punch" or name == "dash_attack" then
+      -- 突进技能在中距离时
+      if dist > 60 and dist < 180 then
+        table.insert(availableCombos, name)
+      end
+    elseif name == "throw_attempt" then
+      -- 投技在非常近身时
+      if dist < 40 then
+        table.insert(availableCombos, name)
+      end
     else
-      if dist < 12000 then
+      -- 其他连招（light_combo, heavy_combo, crouch_kick, rapid_punch）在近身时使用
+      if dist < 150 then
         table.insert(availableCombos, name)
       end
     end
   end
 
+  -- 当坐标不可靠时，过滤掉远程连招，只保留近身连招
+  if not xReliable then
+    local meleeCombos = {}
+    for _, name in ipairs(availableCombos) do
+      if name == "light_combo" or name == "heavy_combo" or name == "rapid_punch" 
+          or name == "crouch_kick" or name == "throw_attempt" then
+        table.insert(meleeCombos, name)
+      end
+    end
+    if #meleeCombos > 0 then
+      availableCombos = meleeCombos
+    end
+  end
+
   if #availableCombos == 0 then
     self:attack(player, nil)
+    if self.aiTimer % 30 == 0 then
+      log:info(string.format("[FTG AI] P%d no-combo-available: fallback to basic attack (dist=%d xReliable=%s)", 
+        player, dist, tostring(xReliable)))
+    end
     return
   end
 
   -- 随机选择可用连招，拼命模式优先选择高伤害连招
   local comboName
   if isDesperate and math.random(1, 10) > 3 then
-    -- 70%概率选择dash_attack或super_special（高伤害）
+    -- 70%概率选择高伤害连招
     for _, name in ipairs(availableCombos) do
-      if name == "dash_attack" or name == "super_special" then
+      if name == "dash_attack" or name == "super_special" or name == "heavy_combo" then
         comboName = name
         break
       end
@@ -463,7 +607,8 @@ function FtgAiArena:_trySpecialMove(player, dist, frameCount, isDesperate)
 
   if self:queueSpecial(player, comboName) then
     self.lastSpecialFrame[player] = frameCount
-    debugLog(string.format("[FTG AI] P%d 释放连招: %s", player, comboName))
+    log:info(string.format("[FTG AI] P%d 释放连招: %s (dist=%d xReliable=%s available=%d)", 
+      player, comboName, dist, tostring(xReliable), #availableCombos))
   end
 end
 
@@ -493,11 +638,26 @@ function FtgAiArena:updateFrame(frameCount)
   self:_runPlayerAi(1, frameCount)
   self:_runPlayerAi(2, frameCount)
 
-  -- 5. 周期性调试输出
-  if self.aiTimer % 60 == 0 then
+  -- 5. 周期性详细战斗日志（每30帧）
+  if self.aiTimer % 30 == 0 then
     local dist = self:getDistance()
     local x1, x2 = self:_readX(1), self:_readX(2)
-    debugLog(string.format("[FTG AI] F%d dist=%d P1X=%d P2X=%d phase=%d", frameCount or 0, dist, x1, x2, self.aiTimer % AI_CYCLE_FRAMES))
+    local y1, y2 = self:_readY(1), self:_readY(2)
+    local hp1, hp2 = self:_readHealth(1), self:_readHealth(2)
+    local s1, s2 = self:_readState(1) or -1, self:_readState(2) or -1
+    local h1, h2 = self:_readHitState(1) or -1, self:_readHitState(2) or -1
+    local f1, f2 = self:_readFacing(1) or -1, self:_readFacing(2) or -1
+    local xReliable = not (self.gameId == "kof97" and x1 == 80 and x2 == 240)
+    log:info(string.format("[FTG AI] ===== F%d Summary =====", frameCount or 0))
+    log:info(string.format("[FTG AI] HP: P1=%d P2=%d | X: P1=%d P2=%d | Y: P1=%d P2=%d | dist=%d | xReliable=%s",
+      hp1, hp2, x1, x2, y1, y2, dist, tostring(xReliable)))
+    log:info(string.format("[FTG AI] State: P1=%d P2=%d | Hit: P1=%d P2=%d | Face: P1=%d P2=%d",
+      s1, s2, h1, h2, f1, f2))
+    log:info(string.format("[FTG AI] Special Q: P1=%s P2=%s | Strategy: P1=%s P2=%s",
+      tostring(self.specialQueue[1] ~= nil), tostring(self.specialQueue[2] ~= nil),
+      tostring(self.strategy[1] or "nil"), tostring(self.strategy[2] or "nil")))
+    log:info(string.format("[FTG AI] Controllable: P1=%s P2=%s | Phase=%d",
+      tostring(p1Ctrl), tostring(p2Ctrl), self.aiTimer % AI_CYCLE_FRAMES))
   end
 end
 

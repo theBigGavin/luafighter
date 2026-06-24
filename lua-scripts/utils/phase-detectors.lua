@@ -65,26 +65,51 @@ function PhaseDetectors.newNeoGeo(config, mem)
       end
 
       -- 1) 明确的对战信号：时间正在倒计时 + 双方有血
-      if timeVal > 0 and timeVal <= maxTime and hp1 > 0 and hp2 > 0 then
-        return PHASE.FIGHT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
+      -- 优先使用 time+hp 判断，降低 battleModeValue 的依赖（避免配置错误导致误判）
+      local bm1 = 0
+      local bm2 = 0
+      if config.battleModeAddr1 then
+        local ok, v = pcall(mem.readU8, mem, config.battleModeAddr1)
+        if ok and v ~= nil then bm1 = tonumber(v) or 0 end
+      end
+      if config.battleModeAddr2 then
+        local ok, v = pcall(mem.readU8, mem, config.battleModeAddr2)
+        if ok and v ~= nil then bm2 = tonumber(v) or 0 end
+      end
+      
+      -- 优先判断：时间正在倒计时 + 双方有血 = 战斗阶段
+      -- battleModeValue 作为辅助确认，不是必要条件
+      local hasBattleSignals = timeVal > 0 and timeVal <= maxTime and hp1 > 0 and hp2 > 0
+      local hasBattleModeMatch = (bm1 == config.battleModeValue) or (bm2 == config.battleModeValue)
+      
+      if hasBattleSignals then
+        -- 如果有战斗信号，且 battleMode 匹配，则直接确认 FIGHT
+        -- 如果 battleMode 不匹配，也认为是 FIGHT（优先使用 time+hp）
+        return PHASE.FIGHT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal, bm1 = bm1, bm2 = bm2, battleModeMatch = hasBattleModeMatch }
       end
 
-  -- 状态字节驱动的快速切换：当状态字节明确变化时，立即返回新阶段
-  -- 这 bypass 了 phaseHistory 的多数表决，减少阶段切换延迟
-  local stateFastSwitch = nil
-  if stateVal == (sv.fight or 8) or stateVal == 9 then
-    stateFastSwitch = PHASE.FIGHT
-  elseif stateVal == (sv.ko or 10) then
-    stateFastSwitch = PHASE.KO
-  elseif stateVal == (sv.win or 11) then
-    stateFastSwitch = PHASE.WIN
-  elseif stateVal == (sv.select or 4) then
-    stateFastSwitch = PHASE.SELECT
-  elseif stateVal == (sv.loading or 6) then
-    stateFastSwitch = PHASE.LOADING
-  elseif stateVal == (sv.attract or 0) or stateVal == (sv.title or 1) then
-    stateFastSwitch = PHASE.ATTRACT
-  end
+      -- 状态字节驱动的快速切换（仅用于非战斗状态的快速切换，避免误判）
+      local stateFastSwitch = nil
+      if stateVal == (sv.ko or 10) then
+        stateFastSwitch = PHASE.KO
+      elseif stateVal == (sv.win or 11) then
+        stateFastSwitch = PHASE.WIN
+      elseif stateVal == (sv.select or 4) then
+        stateFastSwitch = PHASE.SELECT
+      elseif stateVal == (sv.loading or 6) then
+        stateFastSwitch = PHASE.LOADING
+      elseif stateVal == (sv.attract or 0) or stateVal == (sv.title or 1) then
+        stateFastSwitch = PHASE.ATTRACT
+      end
+      
+      -- FIGHT 状态的 fastSwitch 需要额外确认：时间>0 或战斗模式匹配
+      if stateVal == (sv.fight or 8) or stateVal == 9 then
+        if timeVal > 0 and timeVal <= maxTime then
+          stateFastSwitch = PHASE.FIGHT
+        elseif hasBattleModeMatch then
+          stateFastSwitch = PHASE.FIGHT
+        end
+      end
   
   -- 如果状态字节明确指示了新阶段，且与当前推断不同，使用状态字节的结果
   if stateFastSwitch and stateFastSwitch ~= PHASE.UNKNOWN then

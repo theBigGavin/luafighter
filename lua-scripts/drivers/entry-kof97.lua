@@ -52,6 +52,7 @@ function EntryKof97.new(romConfig, memReader, inputCtrl, opts)
   obj.cycle = 0
   obj.maxCycles = 20
   obj.fallbackToCpu = false
+  obj.fightConfirmFrames = 0
 
   math.randomseed(os.time())
 
@@ -67,6 +68,7 @@ function EntryKof97:reset()
   self.stateFrame = 0
   self.cycle = 0
   self.fallbackToCpu = false
+  self.fightConfirmFrames = 0
   debugLog("KOF97 进场状态机已重置")
 end
 
@@ -74,36 +76,103 @@ function EntryKof97:_readBattleSignals()
   local timeAddr = self.config.timeAddr
   local p1HpAddr = self.config.p1HealthAddr
   local p2HpAddr = self.config.p2HealthAddr
+  local stateAddr = self.config.stateAddress
+  local battleModeAddr1 = self.config.battleModeAddr1
   local time = timeAddr and self.mem:readU8(timeAddr) or nil
-  -- 使用 readU16 读取血量（KOF97 可能是 16 位血量）
   local p1Hp = p1HpAddr and self.mem:readU16(p1HpAddr) or nil
   local p2Hp = p2HpAddr and self.mem:readU16(p2HpAddr) or nil
-  debugLog(string.format("[EntryKof97] battle signals: time=%s p1Hp=%s p2Hp=%s", tostring(time), tostring(p1Hp), tostring(p2Hp)))
+  local stateVal = stateAddr and self.mem:readU8(stateAddr) or nil
+  local bm1 = battleModeAddr1 and self.mem:readU8(battleModeAddr1) or nil
+  debugLog(string.format("[EntryKof97] battle signals: time=%s p1Hp=%s p2Hp=%s state=%s bm1=%s",
+    tostring(time), tostring(p1Hp), tostring(p2Hp), tostring(stateVal), tostring(bm1)))
   return time, p1Hp, p2Hp
 end
 
-function EntryKof97:_detectFight()
-  -- 方法1：通过时间 + 血量（需游戏已进入对战）
-  local time, p1Hp, p2Hp = self:_readBattleSignals()
-  if time and time > 0 and time <= 96 and p1Hp and p2Hp and p1Hp > 0 and p2Hp > 0 then
+function EntryKof97:_ensureVsMode()
+  -- 禁用内存写入强制 VS Mode — 可能触发 BIOS 保护/内存检查
+  -- 改为只读取检测，不写入
+  local bm1Addr = self.config.battleModeAddr1
+  if not bm1Addr then return false end
+  
+  local ok1, bm1 = pcall(self.mem.readU8, self.mem, bm1Addr)
+  if ok1 then
+    debugLog(string.format("[EntryKof97] battleModeAddr1=%s current=%s", bm1Addr, tostring(bm1)))
+  end
+  
+  -- 只检测，不修改（避免触发 BIOS 保护）
+  if ok1 and bm1 == 0x09 then
+    debugLog("[EntryKof97] 检测到 VS Mode (0x09)")
     return true
   end
-  -- 方法2：通过 stateAddress（Neo Geo BIOS game state byte）
-  local stateAddr = self.config.stateAddress
-  if stateAddr then
-    local sv = self.config.stateValues or {}
-    local stateVal = self.mem:readU8(stateAddr)
-    if stateVal == (sv.fight or 8) or stateVal == 9 then
-      return true
-    end
+  
+  debugLog("[EntryKof97] 未检测到 VS Mode，跳过内存写入（避免触发保护）")
+  return false
+end
+
+function EntryKof97:_detectFight()
+  local time, p1Hp, p2Hp = self:_readBattleSignals()
+  
+  -- 基本条件：时间正在倒计时 + 双方有血
+  local hasBattleSignals = time and time > 0 and time <= 96 and p1Hp and p2Hp and p1Hp > 0 and p2Hp > 0
+  
+  if not hasBattleSignals then
+    self.fightConfirmFrames = 0
+    return false
   end
+  
+  -- 增加确认计数器，避免 loading 阶段误触发（需要 60 帧确认）
+  self.fightConfirmFrames = self.fightConfirmFrames + 1
+  if self.fightConfirmFrames >= 60 then
+    return true
+  end
+  
+  return false
+end
+
+function EntryKof97:_isVsMode()
+  -- 检测是否已进入 VS Mode（通过 battleModeAddr1）
+  local bm1Addr = self.config.battleModeAddr1
+  if not bm1Addr then return true end -- 无法检测时默认放行
+  
+  local ok, bm1 = pcall(self.mem.readU8, self.mem, bm1Addr)
+  if not ok then return true end
+  
+  -- 0x09 = VS Mode (1v1), 0x10 = 3v3 Team Mode
+  -- 如果检测到 Team Mode，说明不是 VS Mode
+  if bm1 == 0x10 then
+    debugLog("[EntryKof97] 检测到 Team Mode (0x10)，不是 VS Mode")
+    return false
+  end
+  
+  return true
+end
+
+function EntryKof97:_detectFight()
+  local time, p1Hp, p2Hp = self:_readBattleSignals()
+  
+  -- 基本条件：时间正在倒计时 + 双方有血
+  local hasBattleSignals = time and time > 0 and time <= 96 and p1Hp and p2Hp and p1Hp > 0 and p2Hp > 0
+  
+  if not hasBattleSignals then
+    self.fightConfirmFrames = 0
+    return false
+  end
+  
+  -- 增加确认计数器，避免 loading 阶段误触发（需要 60 帧确认）
+  self.fightConfirmFrames = self.fightConfirmFrames + 1
+  if self.fightConfirmFrames >= 60 then
+    return true
+  end
+  
   return false
 end
 
 function EntryKof97:_setState(newState, detail)
   if newState ~= self.state then
-    debugLog(string.format("状态切换: %s -> %s (frame=%d, cycle=%d, detail=%s)",
-      self.state, newState, self.stateFrame, self.cycle, tostring(detail)))
+    local msg = string.format("[EntryKof97-STATE] %s -> %s (frame=%d, detail=%s)",
+      tostring(self.state), tostring(newState), self.stateFrame, tostring(detail))
+    print(msg)
+    debugLog(msg)
     self.state = newState
     self.stateFrame = 0
   end
@@ -121,6 +190,11 @@ function EntryKof97:update(frameCount)
   if self:isFinished() then return end
 
   self.stateFrame = self.stateFrame + 1
+  
+  -- 调试：强制打印当前状态（每60帧）
+  if self.stateFrame % 60 == 0 then
+    print(string.format("[EntryKof97-DEBUG] state=%s stateFrame=%d", tostring(self.state), self.stateFrame))
+  end
 
   -- 全局优先：检测到对战标志立即成功
   if self:_detectFight() then
@@ -193,6 +267,18 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.BOTH_START_WAIT then
+    -- 检测是否已进入 VS Mode
+    if not self:_isVsMode() then
+      -- 不是 VS Mode，尝试内存写入强制 VS Mode
+      debugLog("[EntryKof97] 未检测到 VS Mode，尝试强制写入")
+      self:_ensureVsMode()
+      -- 重新按 P2 Start 尝试加入
+      if self.stateFrame % 15 == 0 then
+        self:_press({"START"}, 2, 10)
+        debugLog("[EntryKof97] 补按 P2 Start 尝试加入 VS Mode")
+      end
+    end
+    
     -- 使用状态字节检测是否已进入选人
     if stateVal == (sv.select or 4) then
       self:_setState(STATE.SELECT_RANDOM, "state shows select, random select now")
@@ -211,15 +297,15 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.SELECT_RANDOM then
-    -- 随机选人阶段：每8帧随机移动光标，15%概率按A确认
+    -- 随机选人阶段：每6帧随机移动光标，25%概率按A确认
     local directions = {"UP", "DOWN", "LEFT", "RIGHT"}
-    if self.stateFrame % 8 == 0 then
+    if self.stateFrame % 6 == 0 then
       local dir1 = directions[math.random(1, 4)]
       local dir2 = directions[math.random(1, 4)]
       self:_press({dir1}, 1, 4)
       self:_press({dir2}, 2, 4)
-      -- 15%概率确认选人
-      if math.random(1, 100) > 85 then
+      -- 25%概率确认选人（提高选人速度）
+      if math.random(1, 100) > 75 then
         self:_press({"BUTTON1"}, 1, 6)
         self:_press({"BUTTON1"}, 2, 6)
       end
@@ -230,7 +316,8 @@ function EntryKof97:update(frameCount)
       self:_setState(STATE.FIGHT, "state shows loading/fight")
       return
     end
-    if self.stateFrame >= 180 then
+    -- 增加超时时间到360帧（6秒），给KOF97选人多留时间
+    if self.stateFrame >= 360 then
       self:_releaseAll()
       self:_setState(STATE.A_WAIT, "random select timeout")
     end

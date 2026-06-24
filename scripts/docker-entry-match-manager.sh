@@ -6,7 +6,7 @@ set -e
 # 1. 虚拟显示
 mkdir -p /tmp/.X11-unix /tmp/pulse
 rm -f /tmp/.X11-unix/X99 /tmp/.X99-lock /tmp/pulse/pid /tmp/pulse/native
-Xvfb :99 -ac -screen 0 384x224x24 &
+Xvfb :99 -ac -screen 0 768x448x24 &
 
 # 2. PulseAudio null sink（固定 48kHz 采样率，减少音频抖动）
 PULSE_RUNTIME_PATH=/tmp/pulse pulseaudio --start --exit-idle-time=-1
