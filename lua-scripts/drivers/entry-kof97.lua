@@ -243,13 +243,13 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.BOTH_START_PRESS then
-    -- KOF97 标题画面需要同时按 P1 Start + P2 Start + A 才能进入 VS Mode 选人
-    -- 只按 P1 Start 会进入 1P Mode，P2 需要在选人前加入
-    self:_press({"START", "BUTTON1"}, 1, 5)
-    self:_press({"START", "BUTTON1"}, 2, 5)
-    if self.stateFrame >= 5 then
+    -- KOF97 标题画面：只按 Start 键（延长到30帧），A键可能干扰模式选择
+    -- 先尝试纯 Start 进入，如果不行再尝试 Start+A
+    self:_press({"START"}, 1, 30)
+    self:_press({"START"}, 2, 30)
+    if self.stateFrame >= 30 then
       self:_releaseAll()
-      self:_setState(STATE.BOTH_START_WAIT, "P1+P2 start+A released")
+      self:_setState(STATE.BOTH_START_WAIT, "P1+P2 Start only released")
     end
     return
   end
