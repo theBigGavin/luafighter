@@ -279,7 +279,15 @@ function EntryKof97:update(frameCount)
       end
     end
     
-    -- 使用状态字节检测是否已进入选人
+    -- 使用 time > 0 检测是否已进入选人/战斗（状态字节不可靠）
+    local time, p1Hp, p2Hp = self:_readBattleSignals()
+    if time and time > 0 then
+      self:_releaseAll()
+      self:_setState(STATE.SELECT_RANDOM, "time > 0, skip to select")
+      return
+    end
+    
+    -- 使用状态字节检测（备用）
     if stateVal == (sv.select or 4) then
       self:_setState(STATE.SELECT_RANDOM, "state shows select, random select now")
       return
@@ -289,6 +297,7 @@ function EntryKof97:update(frameCount)
       self:_press({"BUTTON1"}, 1, 6)
       self:_press({"BUTTON1"}, 2, 6)
     end
+    -- 60帧后自动进入选人（避免状态字节失效导致卡住）
     if self.stateFrame >= 60 then
       self:_releaseAll()
       self:_setState(STATE.SELECT_RANDOM, "auto-select + random")
@@ -310,7 +319,19 @@ function EntryKof97:update(frameCount)
         self:_press({"BUTTON1"}, 2, 6)
       end
     end
-    -- 使用状态字节检测是否已进入 loading/fight
+    -- 使用 time > 0 检测是否已进入战斗（状态字节不可靠）
+    local time, p1Hp, p2Hp = self:_readBattleSignals()
+    if time and time > 0 and p1Hp and p1Hp > 0 and p2Hp and p2Hp > 0 then
+      self.fightConfirmFrames = self.fightConfirmFrames + 1
+      if self.fightConfirmFrames >= 30 then
+        self:_releaseAll()
+        self:_setState(STATE.FIGHT, "time > 0 and hp > 0, fight detected")
+        return
+      end
+    else
+      self.fightConfirmFrames = 0
+    end
+    -- 使用状态字节检测（备用）
     if stateVal == (sv.loading or 6) or stateVal == (sv.fight or 8) then
       self:_releaseAll()
       self:_setState(STATE.FIGHT, "state shows loading/fight")
@@ -328,7 +349,19 @@ function EntryKof97:update(frameCount)
     -- 持续按 A 完成双方选人和确认（后备）
     self:_press({"BUTTON1"}, 1, 10)
     self:_press({"BUTTON1"}, 2, 10)
-    -- 使用状态字节检测是否已进入 loading/fight
+    -- 使用 time > 0 检测是否已进入战斗（状态字节不可靠）
+    local time, p1Hp, p2Hp = self:_readBattleSignals()
+    if time and time > 0 and p1Hp and p1Hp > 0 and p2Hp and p2Hp > 0 then
+      self.fightConfirmFrames = self.fightConfirmFrames + 1
+      if self.fightConfirmFrames >= 30 then
+        self:_releaseAll()
+        self:_setState(STATE.FIGHT, "time > 0 and hp > 0, fight detected")
+        return
+      end
+    else
+      self.fightConfirmFrames = 0
+    end
+    -- 使用状态字节检测（备用）
     if stateVal == (sv.loading or 6) or stateVal == (sv.fight or 8) then
       self:_releaseAll()
       self:_setState(STATE.FIGHT, "state shows loading/fight")
@@ -342,7 +375,18 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.A_WAIT then
-    -- 使用状态字节检测是否已进入战斗
+    -- 使用 time > 0 检测是否已进入战斗（状态字节不可靠）
+    local time, p1Hp, p2Hp = self:_readBattleSignals()
+    if time and time > 0 and p1Hp and p1Hp > 0 and p2Hp and p2Hp > 0 then
+      self.fightConfirmFrames = self.fightConfirmFrames + 1
+      if self.fightConfirmFrames >= 30 then
+        self:_setState(STATE.FIGHT, "time > 0 and hp > 0, fight detected")
+        return
+      end
+    else
+      self.fightConfirmFrames = 0
+    end
+    -- 使用状态字节检测（备用）
     if stateVal == (sv.fight or 8) or stateVal == 9 then
       self:_setState(STATE.FIGHT, "state shows fight")
       return
