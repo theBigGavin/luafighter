@@ -218,7 +218,7 @@ function EntryKof97:update(frameCount)
     -- 如果状态字节已经是 title 或 attract，说明已加载完成
     if stateVal == (sv.title or 1) or stateVal == (sv.attract or 0) then
       self:_setState(STATE.TITLE, "boot done by state")
-    elseif self.stateFrame >= 180 then  -- 最长 180 帧 (~3秒) 兜底
+    elseif self.stateFrame >= 600 then  -- 最长 600 帧 (~10秒) 兜底，让 BIOS 完成初始化
       self:_setState(STATE.TITLE, "boot timeout")
     end
     return
