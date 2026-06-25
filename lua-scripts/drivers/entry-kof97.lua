@@ -257,17 +257,11 @@ function EntryKof97:update(frameCount)
   if self.state == STATE.BOTH_START_WAIT then
     -- 检测是否已进入 VS Mode
     if not self:_isVsMode() then
-      -- 不是 VS Mode，尝试内存写入强制 VS Mode
       debugLog("[EntryKof97] 未检测到 VS Mode，尝试强制写入")
       self:_ensureVsMode()
-      -- 重新按 P2 Start + P2 A 尝试加入
-      if self.stateFrame % 15 == 0 then
-        self:_press({"START", "BUTTON1"}, 2, 10)
-        debugLog("[EntryKof97] 补按 P2 Start+A 尝试加入 VS Mode")
-      end
     end
     
-    -- 使用 time > 0 检测是否已进入选人/战斗（状态字节不可靠）
+    -- 使用 time > 0 检测是否已进入选人/战斗
     local time, p1Hp, p2Hp = self:_readBattleSignals()
     if time and time > 0 then
       self:_releaseAll()
@@ -281,43 +275,17 @@ function EntryKof97:update(frameCount)
       return
     end
     
-    -- 超时：300帧(~5秒)后仍无法进入，尝试按 A 键或重置
-    if self.stateFrame >= 300 then
-      debugLog("[EntryKof97] BOTH_START_WAIT 超时，尝试按 A 键")
-      self:_press({"BUTTON1"}, 1, 5)
-      self:_press({"BUTTON1"}, 2, 5)
-      if self.stateFrame >= 310 then
-        debugLog("[EntryKof97] A 键无效，重置状态机")
-        self:_releaseAll()
-        self:_setState(STATE.TITLE, "reset to title")
-      end
-      return
-    end
-    
-    -- 持续按 P1 Start+A + P2 Start+A，直到进入选人或超时
+    -- 持续按 P1 Start，直到进入选人或超时（1800帧=30秒）
+    -- KOF97 attract demo 可能持续 30-60 秒，需要耐心等待
     if self.stateFrame % 10 == 0 then
-      self:_press({"START", "BUTTON1"}, 1, 5)
-      self:_press({"START", "BUTTON1"}, 2, 5)
-      debugLog("[EntryKof97] 持续按 P1+P2 Start+A")
+      self:_press({"START"}, 1, 5)
+      debugLog("[EntryKof97] 持续按 P1 Start 等待 attract demo 结束")
     end
     
-    -- 使用 time > 0 检测是否已进入选人/战斗（状态字节不可靠）
-    local time, p1Hp, p2Hp = self:_readBattleSignals()
-    if time and time > 0 then
+    -- 1800帧后自动进入选人（避免无限等待）
+    if self.stateFrame >= 1800 then
       self:_releaseAll()
-      self:_setState(STATE.SELECT_RANDOM, "time > 0, skip to select")
-      return
-    end
-    
-    -- 使用状态字节检测（备用）
-    if stateVal == (sv.select or 4) then
-      self:_setState(STATE.SELECT_RANDOM, "state shows select, random select now")
-      return
-    end
-    -- 180帧后自动进入选人（避免状态字节失效导致卡住）
-    if self.stateFrame >= 180 then
-      self:_releaseAll()
-      self:_setState(STATE.SELECT_RANDOM, "auto-select + random")
+      self:_setState(STATE.SELECT_RANDOM, "auto-select after 1800 frames")
     end
     return
   end
