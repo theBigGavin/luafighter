@@ -573,7 +573,7 @@ function InputController:initPorts()
           for fname, _ in pairs(port.fields) do
             table.insert(fieldNames, fname)
           end
-          local msg = string.format("[InputController] NeoGeo port %s (%s) fields: %s", name, tag, table.concat(fieldNames, ","))
+          local msg = string.format("[LuaFighter] [InputController] NeoGeo port %s (%s) fields: %s", name, tag, table.concat(fieldNames, ","))
           print(msg)
           logMsg(msg)
         end
@@ -587,7 +587,7 @@ function InputController:initPorts()
             table.insert(allPorts, tag)
           end
         end
-        local msg = string.format("[InputController] 所有可用端口: %s", table.concat(allPorts, ", "))
+        local msg = string.format("[LuaFighter] [InputController] 所有可用端口: %s", table.concat(allPorts, ", "))
         print(msg)
         log:warn(msg)
       end
