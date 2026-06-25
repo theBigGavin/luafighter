@@ -236,9 +236,10 @@ function EntryKof97:update(frameCount)
 
   if self.state == STATE.COIN_PRESS then
     -- Universe BIOS: 给 P1 和 P2 各投一个币（通过 AUDIO_COIN 端口）
-    self:_press({"COIN"}, 1, 20)
-    self:_press({"COIN"}, 2, 20)
-    if self.stateFrame >= 20 then
+    -- 增加持续时间到 60 帧，确保 BIOS 识别投币
+    self:_press({"COIN"}, 1, 60)
+    self:_press({"COIN"}, 2, 60)
+    if self.stateFrame >= 60 then
       self:_releaseAll()
       self:_setState(STATE.COIN_WAIT, "coin released")
     end
@@ -246,20 +247,21 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.COIN_WAIT then
-    -- 使用状态字节检测是否已进入选人
+    -- 使用状态字节检测是否已进入选人（备用）
     if stateVal == (sv.select or 4) then
       self:_setState(STATE.BOTH_START_PRESS, "state shows select, press start now")
-    elseif self.stateFrame >= 30 then
+    elseif self.stateFrame >= 60 then
+      -- 等待 60 帧让游戏处理投币，然后按 Start
       self:_setState(STATE.BOTH_START_PRESS, "press P1+P2 start")
     end
     return
   end
 
   if self.state == STATE.BOTH_START_PRESS then
-    -- 同时按下 P1 Start + P2 Start，持续稍长以确保 VS 模式触发
-    self:_press({"START"}, 1, 30)
-    self:_press({"START"}, 2, 30)
-    if self.stateFrame >= 30 then
+    -- 同时按下 P1 Start + P2 Start，持续 60 帧确保 VS 模式触发
+    self:_press({"START"}, 1, 60)
+    self:_press({"START"}, 2, 60)
+    if self.stateFrame >= 60 then
       self:_releaseAll()
       self:_setState(STATE.BOTH_START_WAIT, "start released")
     end
