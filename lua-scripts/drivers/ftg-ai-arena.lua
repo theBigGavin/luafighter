@@ -406,6 +406,14 @@ function FtgAiArena:_chooseSpecialForPlayer(player)
   return names[idx]
 end
 
+-- ============ 三层 AI 控制系统 ============
+-- Layer 1: 执行层 (每帧) - 方向微调、攻击按钮、防御
+-- Layer 2: 战术层 (每 6 帧) - 距离判断、防御/反击、攻击时机
+-- Layer 3: 策略层 (每 60 帧) - 整体策略选择、连招选择
+
+local TACTICAL_INTERVAL = 6    -- 战术层决策间隔
+local STRATEGY_INTERVAL = 60   -- 策略层决策间隔
+
 function FtgAiArena:_runPlayerAi(player, frameCount)
   -- 如果该玩家正在放必杀，不覆盖指令
   if self:isExecutingSpecial(player) then return end
@@ -416,96 +424,134 @@ function FtgAiArena:_runPlayerAi(player, frameCount)
     return
   end
 
+  -- 读取基础状态
   local myHp = self:_readHealth(player)
   local enemyHp = self:_readHealth(player == 1 and 2 or 1)
   local hpDiff = myHp - enemyHp
   local rawDist = self:getDistance()
   local attackDist = self.config.attackDistance or 50
-  local phase = self.aiTimer % AI_CYCLE_FRAMES
 
-  -- NeoGeo坐标范围大，需要归一化距离
+  -- NeoGeo坐标处理
   local dist = rawDist
   local xReliable = true
   if self.gameId == "kof97" then
-    -- KOF97: 原始坐标差 / 64 约等于像素距离
     dist = math.floor(rawDist / 64)
-    attackDist = 120  -- 约2个身位
-    -- 检测坐标是否可靠（固定值表示地址不正确）
+    attackDist = 120
     local x1 = self:_readX(1)
     local x2 = self:_readX(2)
     if x1 == 80 and x2 == 240 then
-      -- 坐标固定，标记为不可靠
       xReliable = false
-      -- 当坐标不可靠时，不使用距离判断，直接采用持续近战策略
-      dist = attackDist -- 强制认为在攻击范围内，持续攻击
+      dist = attackDist
     end
   end
 
-  -- 详细日志：每30帧输出一次AI决策信息（避免刷屏）
-  if self.aiTimer % 30 == 0 then
+  -- ===== Layer 3: 策略层 (每 60 帧) =====
+  local isDesperate = false
+  local isAggressive = false
+  local preferredRange = "close"  -- close / mid / far
+
+  if self.aiTimer % STRATEGY_INTERVAL == 0 then
+    isDesperate = hpDiff < -20
+    isAggressive = hpDiff > -10
+    
+    -- 策略选择
+    if isDesperate then
+      preferredRange = "close"  -- 拼命：全力靠近
+    elseif isAggressive then
+      preferredRange = "close"  -- 优势：压制
+    else
+      preferredRange = "mid"    -- 均势：保持中距离
+    end
+    
+    -- 缓存策略状态
+    self._strategyState = self._strategyState or {}
+    self._strategyState[player] = {
+      isDesperate = isDesperate,
+      isAggressive = isAggressive,
+      preferredRange = preferredRange,
+      frameSet = frameCount
+    }
+  else
+    -- 使用缓存的策略状态
+    local ss = self._strategyState and self._strategyState[player]
+    if ss and (frameCount - ss.frameSet) < STRATEGY_INTERVAL * 2 then
+      isDesperate = ss.isDesperate
+      isAggressive = ss.isAggressive
+      preferredRange = ss.preferredRange
+    else
+      isDesperate = hpDiff < -20
+      isAggressive = hpDiff > -10
+    end
+  end
+
+  -- ===== Layer 2: 战术层 (每 6 帧) =====
+  local tacticalAction = nil  -- nil / "approach" / "retreat" / "attack" / "defend" / "combo"
+  
+  if self.aiTimer % TACTICAL_INTERVAL == 0 then
+    if not xReliable then
+      -- 坐标不可靠：纯近战
+      tacticalAction = "attack"
+    elseif dist > attackDist * 2 then
+      -- 太远：靠近
+      tacticalAction = "approach"
+    elseif dist > attackDist then
+      -- 中等距离
+      if preferredRange == "close" then
+        tacticalAction = "approach"
+      else
+        tacticalAction = "attack"  -- 中距离也可攻击
+      end
+    else
+      -- 近距离
+      if isDesperate then
+        tacticalAction = "combo"   -- 拼命：尝试连招
+      else
+        tacticalAction = "attack"  -- 正常：攻击
+      end
+    end
+    
+    -- 缓存战术状态
+    self._tacticalState = self._tacticalState or {}
+    self._tacticalState[player] = {
+      action = tacticalAction,
+      frameSet = frameCount
+    }
+  else
+    -- 使用缓存的战术状态
+    local ts = self._tacticalState and self._tacticalState[player]
+    if ts and (frameCount - ts.frameSet) < TACTICAL_INTERVAL * 2 then
+      tacticalAction = ts.action
+    end
+  end
+
+  -- ===== Layer 1: 执行层 (每帧) =====
+  -- 根据战术状态执行具体动作
+  if tacticalAction == "approach" then
+    self:moveToward(player)
+  elseif tacticalAction == "retreat" then
+    self:moveAway(player)
+  elseif tacticalAction == "defend" then
+    self:defend(player)
+  elseif tacticalAction == "attack" then
+    self:moveToward(player)
+    self:attack(player, nil)
+  elseif tacticalAction == "combo" then
+    self:moveToward(player)
+    self:_trySpecialMove(player, dist, frameCount, isDesperate, xReliable)
+  else
+    -- 默认：靠近
+    self:moveToward(player)
+  end
+
+  -- 详细日志：每60帧输出一次
+  if self.aiTimer % 60 == 0 then
     local x1 = self:_readX(1)
     local x2 = self:_readX(2)
     local s1 = self:_readState(1) or -1
     local s2 = self:_readState(2) or -1
-    local h1 = self:_readHitState(1) or -1
-    local h2 = self:_readHitState(2) or -1
-    local f1 = self:_readFacing(1) or -1
-    local f2 = self:_readFacing(2) or -1
-    log:info(string.format("[FTG AI] P%d F%d | HP:%d/%d | X:%d/%d | State:%d/%d | Hit:%d/%d | Face:%d/%d | dist=%d | reliable=%s",
-      player, frameCount, myHp, enemyHp, x1, x2, s1, s2, h1, h2, f1, f2, dist, tostring(xReliable)))
-  end
-
-  -- 根据血量差调整策略
-  local isDesperate = hpDiff < -20
-  local isAggressive = hpDiff > -10
-
-  -- 关键修复：当坐标不可靠时，采用不依赖距离的纯近战策略
-  if not xReliable then
-    -- 坐标不可靠 → 持续靠近+高频攻击，不依赖距离判断
-    -- 每帧都尝试靠近，每帧都攻击（游戏引擎会处理攻击动画）
-    self:moveToward(player)
-    -- 同时按下攻击键（与方向键在同一帧）
-    self:attack(player, nil)
-    -- 每30帧尝试一次连招
-    if phase % 30 == 0 then
-      self:_trySpecialMove(player, dist, frameCount, isDesperate, xReliable)
-    end
-    return
-  end
-
-  -- 坐标可靠时的正常逻辑
-  -- 距离远（>2个身位）：全力靠近
-  if dist > attackDist * 2 then
-    self:moveToward(player)
-    if self.aiTimer % 30 == 0 then
-      log:info(string.format("[FTG AI] P%d far: moveToward (dist=%d > %d)", player, dist, attackDist * 2))
-    end
-    return
-  end
-
-  -- 距离中等（1-2个身位）：前进+攻击（边走边打）
-  if dist > attackDist then
-    self:moveToward(player)
-    if phase % 4 == 0 then
-      self:attack(player, nil)
-    end
-    if self.aiTimer % 30 == 0 then
-      log:info(string.format("[FTG AI] P%d mid: moveToward+attack (dist=%d > %d)", player, dist, attackDist))
-    end
-    return
-  end
-
-  -- 距离近（<1个身位）：攻击主导，偶尔尝试连招
-  if phase % 8 == 0 then
-    -- 每8帧尝试一次连招
-    self:_trySpecialMove(player, dist, frameCount, isDesperate, xReliable)
-  else
-    -- 持续攻击+前进（边走边打）
-    self:moveToward(player)
-    self:attack(player, nil)
-  end
-  if self.aiTimer % 30 == 0 then
-    log:info(string.format("[FTG AI] P%d close: attack+combo (dist=%d <= %d)", player, dist, attackDist))
+    log:info(string.format("[FTG AI] P%d F%d | HP:%d/%d | X:%d/%d | dist=%d | tactic=%s | strat=%s",
+      player, frameCount, myHp, enemyHp, x1, x2, dist,
+      tostring(tacticalAction), tostring(preferredRange)))
   end
 end
 

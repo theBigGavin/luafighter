@@ -62,3 +62,4 @@ cookies.txt
 # 测试覆盖
 coverage/
 .nyc_output/
+roms/cheat0279/

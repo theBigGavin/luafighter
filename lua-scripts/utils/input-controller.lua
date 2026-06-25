@@ -831,48 +831,60 @@ function InputController:setDirection(player, direction)
   local playerStr = player == 1 and "p1" or "p2"
   local map = self.inputMap[playerStr]
 
-  -- 调试：方向变化时打印一次（避免每帧刷屏）
+  -- 将方向字符串转换为方向键集合
+  local targetDirs = {}
+  if direction == "left" then targetDirs = {LEFT = true}
+  elseif direction == "right" then targetDirs = {RIGHT = true}
+  elseif direction == "up" then targetDirs = {UP = true}
+  elseif direction == "down" then targetDirs = {DOWN = true}
+  elseif direction == "upleft" then targetDirs = {LEFT = true, UP = true}
+  elseif direction == "upright" then targetDirs = {RIGHT = true, UP = true}
+  elseif direction == "downleft" then targetDirs = {LEFT = true, DOWN = true}
+  elseif direction == "downright" then targetDirs = {RIGHT = true, DOWN = true}
+  end
+
+  -- 初始化方向状态缓存
+  self._directionState = self._directionState or {}
+  self._directionState[player] = self._directionState[player] or {}
+  local currentState = self._directionState[player]
+
+  -- 差分更新：只修改变化的键
+  for _, dir in ipairs({"UP", "DOWN", "LEFT", "RIGHT"}) do
+    local portName = map[dir]
+    if not portName then goto continue end
+
+    local shouldBePressed = targetDirs[dir] == true
+    local currentlyPressed = currentState[dir] == true
+
+    if shouldBePressed ~= currentlyPressed then
+      -- 状态变化，执行操作
+      if shouldBePressed then
+        -- 按下
+        if self._platform == "neogeo" then
+          self:setPersistent(portName)
+        else
+          self:_pressByName(portName, 999)
+        end
+      else
+        -- 释放
+        if self._platform == "neogeo" then
+          self:clearPersistent(portName)
+        else
+          self:_releaseByName(portName)
+        end
+      end
+      currentState[dir] = shouldBePressed
+    end
+
+    ::continue::
+  end
+
+  -- 调试：方向变化时打印
   if self._platform == "neogeo" then
     self._lastDirection = self._lastDirection or {}
     if self._lastDirection[player] ~= direction then
-      logMsg(string.format("[InputController] P%d setDirection=%s -> portNames L=%s R=%s U=%s D=%s",
-        player, tostring(direction),
-        tostring(map.LEFT), tostring(map.RIGHT), tostring(map.UP), tostring(map.DOWN)))
+      logMsg(string.format("[InputController] P%d setDirection=%s (diff update)", player, tostring(direction)))
       self._lastDirection[player] = direction
-    end
-  end
-
-  -- 先释放该玩家所有方向键
-  for _, dir in ipairs({"UP", "DOWN", "LEFT", "RIGHT"}) do
-    local portName = map[dir]
-    if portName then
-      if self._platform == "neogeo" then
-        self:clearPersistent(portName)
-      else
-        self:_releaseByName(portName)
-      end
-    end
-  end
-
-  local dirs = {}
-  if direction == "left" then dirs = {"LEFT"}
-  elseif direction == "right" then dirs = {"RIGHT"}
-  elseif direction == "up" then dirs = {"UP"}
-  elseif direction == "down" then dirs = {"DOWN"}
-  elseif direction == "upleft" then dirs = {"LEFT", "UP"}
-  elseif direction == "upright" then dirs = {"RIGHT", "UP"}
-  elseif direction == "downleft" then dirs = {"LEFT", "DOWN"}
-  elseif direction == "downright" then dirs = {"RIGHT", "DOWN"}
-  end
-
-  for _, dir in ipairs(dirs) do
-    local portName = map[dir]
-    if portName then
-      if self._platform == "neogeo" then
-        self:setPersistent(portName)
-      else
-        self:_pressByName(portName, 999)
-      end
     end
   end
 end
