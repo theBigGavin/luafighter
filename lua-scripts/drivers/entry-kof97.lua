@@ -243,13 +243,32 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.BOTH_START_PRESS then
-    -- KOF97 标题画面：只按 Start 键（延长到30帧），A键可能干扰模式选择
-    -- 先尝试纯 Start 进入，如果不行再尝试 Start+A
+    -- KOF97 标题画面：直接写入内存强制进入 VS Mode 选人状态，跳过 attract 阶段
+    -- 同时按 P1+P2 Start 作为辅助
+    local stateAddr = self.config.stateAddress
+    if stateAddr then
+      local ok = pcall(self.mem.writeU8, self.mem, stateAddr, 4) -- select = 4
+      if ok then
+        debugLog("[EntryKof97] 强制写入 stateAddress=4 (select)")
+      else
+        debugLog("[EntryKof97] 写入 stateAddress 失败")
+      end
+    end
+    local bm1Addr = self.config.battleModeAddr1
+    if bm1Addr then
+      local ok = pcall(self.mem.writeU8, self.mem, bm1Addr, 9) -- VS Mode = 9
+      if ok then
+        debugLog("[EntryKof97] 强制写入 battleModeAddr1=9 (VS Mode)")
+      else
+        debugLog("[EntryKof97] 写入 battleModeAddr1 失败")
+      end
+    end
+    
     self:_press({"START"}, 1, 30)
     self:_press({"START"}, 2, 30)
     if self.stateFrame >= 30 then
       self:_releaseAll()
-      self:_setState(STATE.BOTH_START_WAIT, "P1+P2 Start only released")
+      self:_setState(STATE.BOTH_START_WAIT, "memory forced + P1+P2 Start released")
     end
     return
   end
