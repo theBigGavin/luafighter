@@ -361,9 +361,9 @@ local function setPortValue(portName, value, platform)
       portName, tostring(mapping.portTag), tostring(mapping.fieldName), tonumber(mapping.mask) or 0))
 
     -- 方案 1：field:set_value（标准 ioport 层注入）
-    -- 注意：对于 active-low 端口，field:set_value(0) 表示按下（低电平），set_value(1) 表示释放（高电平）
-    -- 因此需要反转 value：按下时 value=1 -> 设置 0，释放时 value=0 -> 设置 1
-    local digitalValue = (value == 1) and 0 or 1
+    -- 对于 active-low 端口，field:set_value(1) 表示激活（低电平/按下）
+    -- field:set_value(0) 表示未激活（高电平/释放）
+    -- 因此 value=1（按下）-> set_value(1)，value=0（释放）-> set_value(0)
     -- 同时尝试带冒号和不带冒号的端口 tag
     local port = manager.machine.ioport.ports[mapping.portTag]
     if not port then
@@ -372,7 +372,7 @@ local function setPortValue(portName, value, platform)
     if port then
       local field = port.fields[mapping.fieldName]
       if field then
-        local ok = pcall(field.set_value, field, digitalValue)
+        local ok = pcall(field.set_value, field, value)
         if not ok then
           log:warn(string.format("setPortValue: field:set_value failed for %s", portName))
         end

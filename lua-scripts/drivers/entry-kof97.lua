@@ -225,7 +225,7 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.TITLE then
-    -- 如果状态字节已经是 select，说明已进入选人，跳过投币
+    -- 使用状态字节检测是否已进入选人（备用）
     if stateVal == (sv.select or 4) then
       self:_setState(STATE.BOTH_START_PRESS, "skip to start (already in select)")
     elseif self.stateFrame >= 60 then  -- 等待 60 帧 (~1秒) 让 attract demo 结束
