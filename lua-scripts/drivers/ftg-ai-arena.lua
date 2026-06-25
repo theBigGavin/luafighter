@@ -167,25 +167,43 @@ end
 -- ============ 可控性判断 ============
 
 function FtgAiArena:isControllable(player)
-  -- 使用状态地址（Word）和受击状态地址（Byte）判断可控性
+  -- 使用多维度判断角色是否可控
+  -- 维度1: 状态值（基本状态）
+  -- 维度2: 受击状态（硬直/倒地/被投）
+  -- 维度3: 动画标志（超必杀动画中）
+  -- 维度4: 格挡硬直计时器
+  
   local state = self:_readState(player)
   local hitState = self:_readHitState(player)
   
-  if state == nil then
-    -- 未配置状态地址时默认认为可控，由上层 phase 保护
-    return true
-  end
+  -- 如果未配置状态地址，默认认为可控（由上层 phase 保护）
+  if state == nil then return true end
   
-  -- 如果受击状态非零，角色处于硬直/受击/倒地状态，不可控
+  -- 维度2: 受击状态检查
+  -- 如果 hitState 非零，角色处于受击/硬直/倒地状态，不可控
   if hitState and hitState ~= 0 then
     return false
   end
   
-  -- 检查状态是否在可控列表中
+  -- 维度1: 基本状态检查
+  -- 可控状态列表：站立、蹲下、行走、后退、跳跃
   local okStates = self.config.controllableStates or DEFAULT_CONTROLLABLE_STATES
   for _, s in ipairs(okStates) do
     if state == s then return true end
   end
+  
+  -- 扩展可控状态（跳跃中仍可输入）
+  -- 根据 KOF97 常见状态值：4=跳跃, 5=跳跃中攻击
+  if state == 4 or state == 5 then
+    return true
+  end
+  
+  -- 防御状态（可以取消防御进行反击）
+  if state == 6 or state == 7 then
+    return true
+  end
+  
+  -- 其他状态：默认不可控（如投技、超必杀动画、倒地起身等）
   return false
 end
 
