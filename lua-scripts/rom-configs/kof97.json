@@ -21,8 +21,8 @@
     "ko": 10,
     "win": 11
   },
-  "p1HealthAddr": "0x108239",
-  "p2HealthAddr": "0x108439",
+  "p1HealthAddr": "0x10823A",
+  "p2HealthAddr": "0x10843A",
   "p1XAddr": "0x108180",
   "p2XAddr": "0x108380",
   "p1YAddr": "0x108186",
