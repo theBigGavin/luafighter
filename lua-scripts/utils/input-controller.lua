@@ -573,7 +573,9 @@ function InputController:initPorts()
           for fname, _ in pairs(port.fields) do
             table.insert(fieldNames, fname)
           end
-          logMsg(string.format("[InputController] NeoGeo port %s (%s) fields: %s", name, tag, table.concat(fieldNames, ",")))
+          local msg = string.format("[InputController] NeoGeo port %s (%s) fields: %s", name, tag, table.concat(fieldNames, ","))
+          print(msg)
+          logMsg(msg)
         end
       end
       -- 诊断：如果任何端口找不到，列出所有可用端口
@@ -585,7 +587,9 @@ function InputController:initPorts()
             table.insert(allPorts, tag)
           end
         end
-        log:warn(string.format("[InputController] 所有可用端口: %s", table.concat(allPorts, ", ")))
+        local msg = string.format("[InputController] 所有可用端口: %s", table.concat(allPorts, ", "))
+        print(msg)
+        log:warn(msg)
       end
       if ok then
         -- 确认 KOF97 的 Cabinet DIP 为 VS Mode，保证 1P vs 2P
