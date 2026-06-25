@@ -525,15 +525,19 @@ emu.register_periodic(function()
     end
   end
 
-  -- 测试：读取 $300000 验证 install_read_tap 是否生效
+  -- 测试：读取 $300000/$380000 验证 install_read_tap 是否生效
   if frameCount % 60 == 0 then
     local cpu = manager.machine.devices[":maincpu"]
     if cpu and cpu.spaces then
       local space = cpu.spaces["program"]
       if space then
-        local ok, val = pcall(space.read_u8, space, 0x300000)
-        if ok then
-          print(string.format("[LuaFighter] TEST $300000 = 0x%02X (expected 0xF7 if Right pressed)", val or 0xFF))
+        local ok1, val1 = pcall(space.read_u8, space, 0x300000)
+        if ok1 then
+          print(string.format("[LuaFighter] TEST $300000 = 0x%02X (P1 buttons, 0xF7=Right)", val1 or 0xFF))
+        end
+        local ok2, val2 = pcall(space.read_u8, space, 0x380000)
+        if ok2 then
+          print(string.format("[LuaFighter] TEST $380000 = 0x%02X (System, 0xFE=P1 Start, 0xFC=P1+P2 Start)", val2 or 0xFF))
         end
       end
     end
