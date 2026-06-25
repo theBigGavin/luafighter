@@ -285,10 +285,12 @@ end
 local function setNeoGeoTapState(player, portName, pressed)
   local mapping = NEOGEO_FIELD_MAP and NEOGEO_FIELD_MAP[portName]
   if not mapping then
-    log:warn(string.format("setNeoGeoTapState: no mapping for %s", portName))
+    log:warn(string.format("[LuaFighter] setNeoGeoTapState: no mapping for %s", portName))
     return
   end
   local mask = mapping.mask or 0
+  log:info(string.format("[LuaFighter] setNeoGeoTapState: P%d %s %s mask=0x%02X", 
+    player, portName, pressed and "PRESSED" or "RELEASED", mask))
 
   -- Start 键在 SYSTEM 端口 ($380000)
   -- 使用 mapping.mask（P1_START=1, P2_START=4）
@@ -296,7 +298,7 @@ local function setNeoGeoTapState(player, portName, pressed)
     local systemState = NEOGEO_TAP_STATE.system
     local startMask = mapping.mask or 0
     if startMask == 0 then
-      log:warn(string.format("setNeoGeoTapState: Start mask is 0 for %s", portName))
+      log:warn(string.format("[LuaFighter] setNeoGeoTapState: Start mask is 0 for %s", portName))
       return
     end
     if pressed then
@@ -305,6 +307,10 @@ local function setNeoGeoTapState(player, portName, pressed)
       systemState = systemState | startMask   -- 释放：置位对应位
     end
     NEOGEO_TAP_STATE.system = systemState
+    log:info(string.format("[LuaFighter] setNeoGeoTapState: SYSTEM state=0x%04X (P1=%s P2=%s)", 
+      systemState, 
+      (systemState & 1) == 0 and "ON" or "OFF", 
+      (systemState & 2) == 0 and "ON" or "OFF"))
     return
   end
 
@@ -318,7 +324,7 @@ local function setNeoGeoTapState(player, portName, pressed)
   end
 
   if state ~= oldState then
-    log:info(string.format("setNeoGeoTapState: P%d %s %s mask=0x%02X state=0x%02X->0x%02X",
+    log:info(string.format("[LuaFighter] setNeoGeoTapState: P%d %s %s mask=0x%02X state=0x%02X->0x%02X",
       player, portName, pressed and "PRESSED" or "RELEASED", mask, oldState, state))
   end
 
@@ -357,7 +363,7 @@ local function setPortValue(portName, value, platform)
     end
     
     -- 诊断：打印 mapping 内容
-    log:info(string.format("setPortValue: %s mapping={portTag=%s fieldName=%s mask=%d}", 
+    log:info(string.format("[LuaFighter] setPortValue: %s mapping={portTag=%s fieldName=%s mask=%d}", 
       portName, tostring(mapping.portTag), tostring(mapping.fieldName), tonumber(mapping.mask) or 0))
 
     -- 方案 1：field:set_value（标准 ioport 层注入）
@@ -374,13 +380,13 @@ local function setPortValue(portName, value, platform)
       if field then
         local ok = pcall(field.set_value, field, value)
         if not ok then
-          log:warn(string.format("setPortValue: field:set_value failed for %s", portName))
+          log:warn(string.format("[LuaFighter] setPortValue: field:set_value failed for %s", portName))
         end
       else
-        log:warn(string.format("setPortValue: field not found for %s (fieldName=%s)", portName, mapping.fieldName))
+        log:warn(string.format("[LuaFighter] setPortValue: field not found for %s (fieldName=%s)", portName, mapping.fieldName))
       end
     else
-      log:warn(string.format("setPortValue: port not found for %s (portTag=%s)", portName, mapping.portTag))
+      log:warn(string.format("[LuaFighter] setPortValue: port not found for %s (portTag=%s)", portName, mapping.portTag))
     end
 
     -- 方案 2：install_read_tap（直接拦截 CPU 读取，绕过 BIOS 层）

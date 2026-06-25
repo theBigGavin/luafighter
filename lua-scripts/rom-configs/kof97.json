@@ -33,7 +33,7 @@
   "p2HitStateAddr": "0x10836E",
   "p1FacingAddr": "0x10810D",
   "p2FacingAddr": "0x10830D",
-  "timeAddr": "0x10823A",
+  "timeAddr": "0x10A83E",
   "p1PowerAddr": "0x10A83E",
   "p2PowerAddr": "0x10A87E",
   "maxHealth": 103,
