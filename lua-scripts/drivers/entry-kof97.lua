@@ -284,13 +284,28 @@ function EntryKof97:update(frameCount)
       self:_setState(STATE.SELECT_RANDOM, "state shows select, random select now")
       return
     end
-    -- 持续补按 A 防止超时
+    -- 持续按 P1 Start + P2 Start，直到进入选人或超时
     if self.stateFrame % 10 == 0 then
-      self:_press({"BUTTON1"}, 1, 6)
-      self:_press({"BUTTON1"}, 2, 6)
+      self:_press({"START"}, 1, 12)
+      self:_press({"START"}, 2, 12)
+      debugLog("[EntryKof97] 持续按 P1+P2 Start")
     end
-    -- 60帧后自动进入选人（避免状态字节失效导致卡住）
-    if self.stateFrame >= 60 then
+    
+    -- 使用 time > 0 检测是否已进入选人/战斗（状态字节不可靠）
+    local time, p1Hp, p2Hp = self:_readBattleSignals()
+    if time and time > 0 then
+      self:_releaseAll()
+      self:_setState(STATE.SELECT_RANDOM, "time > 0, skip to select")
+      return
+    end
+    
+    -- 使用状态字节检测（备用）
+    if stateVal == (sv.select or 4) then
+      self:_setState(STATE.SELECT_RANDOM, "state shows select, random select now")
+      return
+    end
+    -- 180帧后自动进入选人（避免状态字节失效导致卡住）
+    if self.stateFrame >= 180 then
       self:_releaseAll()
       self:_setState(STATE.SELECT_RANDOM, "auto-select + random")
     end
