@@ -73,9 +73,22 @@ end
 
 function MemoryReader:writeU8(addr, value)
   local space = getSpace()
-  if not space then return false end
+  if not space then
+    print("[MemoryReader-ERROR] getSpace() returned nil, cannot write to " .. tostring(addr))
+    return false
+  end
   local addrNum = hexToNum(addr)
-  local ok = pcall(space.write_u8, space, addrNum, value)
+  if not addrNum then
+    print("[MemoryReader-ERROR] hexToNum failed for addr=" .. tostring(addr))
+    return false
+  end
+  print(string.format("[MemoryReader-WRITE] addr=0x%06X value=%d", addrNum, value))
+  local ok, err = pcall(space.write_u8, space, addrNum, value)
+  if ok then
+    print(string.format("[MemoryReader-WRITE-OK] addr=0x%06X value=%d", addrNum, value))
+  else
+    print("[MemoryReader-WRITE-FAIL] addr=" .. tostring(addr) .. " err=" .. tostring(err))
+  end
   return ok
 end
 

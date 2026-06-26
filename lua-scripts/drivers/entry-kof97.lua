@@ -212,6 +212,10 @@ function EntryKof97:update(frameCount)
   if self.state == STATE.BOOT then
     -- 强制等待 MAME 完成 BIOS 初始化（NeoGeo logo → SNK logo → 标题）
     -- stateVal 在 BIOS 阶段为 0，不可靠，使用固定等待时间
+    if self.stateFrame % 60 == 0 then
+      print(string.format("[EntryKof97-BOOT] stateFrame=%d/600", self.stateFrame))
+      debugLog(string.format("[EntryKof97] BOOT progress: %d/600 frames", self.stateFrame))
+    end
     if self.stateFrame >= 600 then  -- 600帧 (~10秒)，让 BIOS 完成初始化
       self:_setState(STATE.TITLE, "boot done by timeout")
     end
@@ -245,23 +249,36 @@ function EntryKof97:update(frameCount)
   if self.state == STATE.BOTH_START_PRESS then
     -- KOF97 标题画面：直接写入内存强制进入 VS Mode 选人状态，跳过 attract 阶段
     -- 同时按 P1+P2 Start 作为辅助
+    print("[EntryKof97-BOTH_START_PRESS] ENTERED stateFrame=" .. tostring(self.stateFrame))
+    debugLog("[EntryKof97] ENTERED BOTH_START_PRESS stateFrame=" .. tostring(self.stateFrame))
+    
     local stateAddr = self.config.stateAddress
     if stateAddr then
       local ok = pcall(self.mem.writeU8, self.mem, stateAddr, 4) -- select = 4
       if ok then
+        print("[EntryKof97-WRITE-OK] stateAddress=" .. tostring(stateAddr) .. " value=4")
         debugLog("[EntryKof97] 强制写入 stateAddress=4 (select)")
       else
+        print("[EntryKof97-WRITE-FAIL] stateAddress=" .. tostring(stateAddr))
         debugLog("[EntryKof97] 写入 stateAddress 失败")
       end
+    else
+      print("[EntryKof97-NO-ADDR] stateAddress not configured")
+      debugLog("[EntryKof97] stateAddress 未配置")
     end
     local bm1Addr = self.config.battleModeAddr1
     if bm1Addr then
       local ok = pcall(self.mem.writeU8, self.mem, bm1Addr, 9) -- VS Mode = 9
       if ok then
+        print("[EntryKof97-WRITE-OK] battleModeAddr1=" .. tostring(bm1Addr) .. " value=9")
         debugLog("[EntryKof97] 强制写入 battleModeAddr1=9 (VS Mode)")
       else
+        print("[EntryKof97-WRITE-FAIL] battleModeAddr1=" .. tostring(bm1Addr))
         debugLog("[EntryKof97] 写入 battleModeAddr1 失败")
       end
+    else
+      print("[EntryKof97-NO-ADDR] battleModeAddr1 not configured")
+      debugLog("[EntryKof97] battleModeAddr1 未配置")
     end
     
     self:_press({"START"}, 1, 30)
