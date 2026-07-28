@@ -112,6 +112,19 @@ export interface ComboCommand {
 
 export type LuaCommand = StrategyCommand | InputCommand | ComboCommand;
 
+/**
+ * 传输信封：LuaBridge 在发送时为每条命令附加递增 seq，
+ * Lua 端处理完毕后回 { event: 'ack', seq }，Node 端超时未收到 ack 则重发。
+ */
+export interface LuaCommandEnvelope {
+  seq?: number;
+}
+
+export interface LuaAckEvent {
+  event: 'ack';
+  seq: number;
+}
+
 // -----------------------------------
 // 事件上报 (Lua → Node.js)
 // -----------------------------------

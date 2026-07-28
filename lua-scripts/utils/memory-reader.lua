@@ -48,12 +48,12 @@ function MemoryReader:readU16(addr)
   local addrNum = hexToNum(addr)
   local ok, val = pcall(space.read_u16, space, addrNum)
   if ok then return val end
-  -- 降级：读取两个字节拼接
-  local lo = self:readU8(addrNum)
-  if lo == nil then return nil end
-  local hi = self:readU8(addrNum + 1)
+  -- 降级：读取两个字节拼接（68000 为大端：低地址字节是高位）
+  local hi = self:readU8(addrNum)
   if hi == nil then return nil end
-  return lo + hi * 256
+  local lo = self:readU8(addrNum + 1)
+  if lo == nil then return nil end
+  return hi * 256 + lo
 end
 
 function MemoryReader:readS16(addr)
@@ -64,11 +64,12 @@ function MemoryReader:readS16(addr)
 end
 
 function MemoryReader:readU32(addr)
-  local lo = self:readU16(addr)
-  if lo == nil then return nil end
-  local hi = self:readU16(addr + 2)
+  -- 68000 大端：地址处为高 16 位
+  local hi = self:readU16(addr)
   if hi == nil then return nil end
-  return lo + hi * 65536
+  local lo = self:readU16(addr + 2)
+  if lo == nil then return nil end
+  return hi * 65536 + lo
 end
 
 function MemoryReader:writeU8(addr, value)

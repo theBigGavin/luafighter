@@ -207,10 +207,8 @@ end
 
 local function readXCoord(addr)
   if not addr then return 0 end
-  local val = mem:readU32(addr) or 0
-  -- KOF97 X 坐标是 Dword，但通常只使用低 16 位
-  if val > 0xFFFF then val = val & 0xFFFF end
-  return val
+  -- KOF97 实测：X 坐标是有符号 u16 世界坐标（docs/kof97-findings.md）
+  return mem:readS16(addr) or 0
 end
 
 local function readFacing(addr)
@@ -321,6 +319,35 @@ end
 
 -- 对战阶段 AI 已迁移到 ftg-ai-arena.lua（帧级状态机 + 状态锁定）
 
+-- 回合结束宣告（ hoist 到外层：KO 血量归零与阶段切出 FIGHT 两条路径共用）
+-- KOF97 3v3：HP 地址是"当前出战角色"，KO 后下一个队友立即上场，
+-- 血量可能读不到 0，因此阶段 FIGHT->KO/WIN 切换也是合法的回合结束信号。
+local function declareRoundEnd(winner)
+  if koDetected then return end
+  if winner == 1 then p1Wins = p1Wins + 1 else p2Wins = p2Wins + 1 end
+  koDetected = true
+  koConfirmFrames = 0
+  sendEvent({
+    event = "round_end",
+    winner = winner,
+    round = roundCount,
+    p1Health = p1Health,
+    p2Health = p2Health,
+  })
+  debugLog(string.format("[Automation] Round %d 结束，胜者 P%d (%d-%d)", roundCount, winner, p1Wins, p2Wins))
+  local winThreshold = romConfig.teamSize or 2
+  if p1Wins >= winThreshold or p2Wins >= winThreshold then
+    gameEnded = true
+    sendEvent({
+      event = "game_end",
+      winner = winner,
+      p1Wins = p1Wins,
+      p2Wins = p2Wins,
+    })
+    debugLog(string.format("[Automation] 对局结束，最终胜者 P%d", winner))
+  end
+end
+
 local function handleFight()
   -- 使用 FTG AI Arena 帧级状态机：移动/防御/攻击/必杀
   ftgAi:updateFrame(frameCount)
@@ -340,30 +367,6 @@ local function handleFight()
   local sv = romConfig.stateValues or {}
   local koState = sv.ko or 10
   local winState = sv.win or 11
-
-  local function declareRoundEnd(winner)
-    if winner == 1 then p1Wins = p1Wins + 1 else p2Wins = p2Wins + 1 end
-    koDetected = true
-    koConfirmFrames = 0
-    sendEvent({
-      event = "round_end",
-      winner = winner,
-      round = roundCount,
-      p1Health = p1Health,
-      p2Health = p2Health,
-    })
-    debugLog(string.format("[Automation] Round %d 结束，胜者 P%d (%d-%d)", roundCount, winner, p1Wins, p2Wins))
-    if p1Wins >= 2 or p2Wins >= 2 then
-      gameEnded = true
-      sendEvent({
-        event = "game_end",
-        winner = winner,
-        p1Wins = p1Wins,
-        p2Wins = p2Wins,
-      })
-      debugLog(string.format("[Automation] 对局结束，最终胜者 P%d", winner))
-    end
-  end
 
   -- 状态字节明确报 KO/Win 且有一方血量归零（或血量锁定模式）
   if stateVal == koState or stateVal == winState then
@@ -435,6 +438,10 @@ emu.register_periodic(function()
           inputCtrl:press(step.buttons, msg.player, step.duration or 6)
         end
       end
+      -- 命令确认（seq/ack 可靠传输，Node 端超时未收到会重发）
+      if msg.seq then
+        sendEvent({ event = "ack", seq = msg.seq })
+      end
       msg = ws:receive()
     end
   end
@@ -472,6 +479,10 @@ emu.register_periodic(function()
   -- fastSwitch：状态字节明确变化时，立即切换，不等待平滑
   if meta and meta.fastSwitch then
     if newPhase ~= currentPhase then
+      -- FIGHT -> KO/WIN：回合结束（KOF97 换队友时血量读不到 0，以此为准）
+      if currentPhase == PHASE.FIGHT and (newPhase == PHASE.KO or newPhase == PHASE.WIN) then
+        declareRoundEnd((p1Health >= p2Health) and 1 or 2)
+      end
       currentPhase = newPhase
       sendEvent({ event = "phase_change", phase = currentPhase, fastSwitch = true })
       debugLog(string.format("[Automation] 阶段快速切换: %s (state=0x%02X)", currentPhase, meta.state or 0))
@@ -501,6 +512,10 @@ emu.register_periodic(function()
     local smoothedPhase = getMajorityPhase()
     
     if smoothedPhase ~= currentPhase then
+      -- FIGHT -> KO/WIN：回合结束（KOF97 换队友时血量读不到 0，以此为准）
+      if currentPhase == PHASE.FIGHT and (smoothedPhase == PHASE.KO or smoothedPhase == PHASE.WIN) then
+        declareRoundEnd((p1Health >= p2Health) and 1 or 2)
+      end
       currentPhase = smoothedPhase
       sendEvent({ event = "phase_change", phase = currentPhase })
       debugLog(string.format("[Automation] 阶段平滑切换: %s", currentPhase))

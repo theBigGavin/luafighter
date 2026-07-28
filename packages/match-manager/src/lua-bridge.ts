@@ -37,6 +37,12 @@ export class LuaBridge {
   private filePollingActive: boolean = false;
   private pipeInPath: string;
   private pipeOutPath: string;
+  // seq/ack 可靠传输：每条命令带递增 seq，Lua 回 ack；500ms 未确认则重发，最多 3 次
+  private nextSeq: number = 1;
+  private pendingAck = new Map<number, { command: LuaCommand; sentAt: number; retries: number }>();
+  private ackTimer: NodeJS.Timeout | null = null;
+  // 文件轮询读取偏移（append-only 增量读取，避免读后截断的丢消息竞态）
+  private pipeInOffset: number = 0;
 
   constructor(port: number, roomId: string, callbacks: LuaBridgeCallbacks) {
     this.port = port;
@@ -108,6 +114,11 @@ export class LuaBridge {
   stop(): Promise<void> {
     return new Promise((resolve) => {
       this.stopFilePolling();
+      if (this.ackTimer) {
+        clearInterval(this.ackTimer);
+        this.ackTimer = null;
+      }
+      this.pendingAck.clear();
       if (this.ws) {
         this.ws.close();
         this.ws = null;
@@ -125,16 +136,49 @@ export class LuaBridge {
   }
 
   send(command: LuaCommand): boolean {
+    const cmd = { ...command, seq: this.nextSeq++ };
+    if (!this.deliver(cmd)) {
+      this.commandQueue.push(cmd);
+      return false;
+    }
+    this.pendingAck.set(cmd.seq, { command: cmd, sentAt: Date.now(), retries: 0 });
+    this.ensureAckTimer();
+    return true;
+  }
+
+  private deliver(command: LuaCommand & { seq?: number }): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(command));
       return true;
-    } else if (this.filePollingActive) {
+    }
+    if (this.filePollingActive) {
       // 通过文件 I/O 发送命令
       return this.sendViaFile(command);
-    } else {
-      this.commandQueue.push(command);
-      return false;
     }
+    return false;
+  }
+
+  private ensureAckTimer(): void {
+    if (this.ackTimer) return;
+    this.ackTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [seq, pending] of this.pendingAck) {
+        if (now - pending.sentAt < 500) continue;
+        if (pending.retries >= 3) {
+          this.pendingAck.delete(seq);
+          console.error(`[LuaBridge ${this.roomId}] 命令 seq=${seq} 重发 3 次仍未收到 ack，已丢弃`);
+          this.callbacks.onError(`command seq=${seq} lost (no ack after retries)`);
+          continue;
+        }
+        pending.retries++;
+        pending.sentAt = now;
+        this.deliver(pending.command); // 通道暂不可用时下轮再试
+      }
+      if (this.pendingAck.size === 0 && this.ackTimer) {
+        clearInterval(this.ackTimer);
+        this.ackTimer = null;
+      }
+    }, 500);
   }
 
   private sendViaFile(command: LuaCommand): boolean {
@@ -175,22 +219,43 @@ export class LuaBridge {
     this.flushCommandQueue();
 
     this.checkInterval = setInterval(() => {
+      let fd: number | null = null;
       try {
         if (!fs.existsSync(this.pipeInPath)) return;
-        const content = fs.readFileSync(this.pipeInPath, 'utf-8');
-        if (content && content.length > 0) {
-          // 清空文件（原子性较差，但单进程足够）
-          fs.writeFileSync(this.pipeInPath, '');
-          // 按行解析
-          for (const line of content.split('\n')) {
-            const trimmed = line.trim();
-            if (trimmed.length > 0) {
-              this.handleMessage(trimmed);
-            }
+        const stat = fs.statSync(this.pipeInPath);
+        if (stat.size < this.pipeInOffset) {
+          // 文件被外部截断/轮转，从头读
+          this.pipeInOffset = 0;
+        }
+        if (stat.size <= this.pipeInOffset) return;
+
+        // append-only 增量读取：从上次偏移继续读，不截断文件，
+        // 避免"读后清空"与 Lua 端 append 之间的丢消息竞态
+        fd = fs.openSync(this.pipeInPath, 'r');
+        const length = stat.size - this.pipeInOffset;
+        const buffer = Buffer.alloc(length);
+        const bytesRead = fs.readSync(fd, buffer, 0, length, this.pipeInOffset);
+        if (bytesRead <= 0) return;
+
+        const chunk = buffer.subarray(0, bytesRead);
+        // 只处理完整行，未写完的半行留到下一轮
+        const lastNewline = chunk.lastIndexOf(0x0a);
+        if (lastNewline < 0) return;
+        const complete = chunk.subarray(0, lastNewline).toString('utf-8');
+        this.pipeInOffset += lastNewline + 1;
+
+        for (const line of complete.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed.length > 0) {
+            this.handleMessage(trimmed);
           }
         }
       } catch (err) {
         // 文件读取失败，忽略
+      } finally {
+        if (fd !== null) {
+          try { fs.closeSync(fd); } catch { /* ignore */ }
+        }
       }
     }, 100); // 100ms 轮询
   }
@@ -201,6 +266,7 @@ export class LuaBridge {
       this.checkInterval = null;
     }
     this.filePollingActive = false;
+    this.pipeInOffset = 0;
   }
 
   private handleMessage(raw: string): void {
@@ -209,6 +275,15 @@ export class LuaBridge {
       const jsonStart = raw.indexOf('{');
       const jsonStr = jsonStart >= 0 ? raw.substring(jsonStart) : raw;
       const event = JSON.parse(jsonStr) as LuaEvent;
+
+      // 命令确认：清除对应 seq 的重发跟踪
+      if ((event as any).event === 'ack') {
+        const ackSeq = (event as any).seq;
+        if (typeof ackSeq === 'number') {
+          this.pendingAck.delete(ackSeq);
+        }
+        return;
+      }
 
       switch (event.event) {
         case 'ready':
@@ -257,17 +332,11 @@ export class LuaBridge {
   }
 
   private flushCommandQueue(): void {
-    while (this.commandQueue.length > 0) {
-      const cmd = this.commandQueue.shift()!;
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify(cmd));
-      } else if (this.filePollingActive) {
-        this.sendViaFile(cmd);
-      } else {
-        // 既无 WebSocket 也无文件轮询，塞回队列并停止
-        this.commandQueue.unshift(cmd);
-        break;
-      }
+    const queued = this.commandQueue.splice(0);
+    for (const cmd of queued) {
+      // 走 send() 统一入口：重新分配 seq 并纳入 ack 跟踪；
+      // 通道仍不可用时 send() 会把命令塞回队列，此时停止避免空转
+      if (!this.send(cmd)) break;
     }
   }
 }

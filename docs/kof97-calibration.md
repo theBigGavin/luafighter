@@ -1,5 +1,12 @@
 # KOF97 校准与部署笔记
 
+> **2026-07-28 更正**：本文档早期结论已部分过时。输入链路修复后实测：
+> - **应使用 stock BIOS，不要用 unibios40**——持续按键脉冲会在 UniBIOS 启动画面触发其内置作弊菜单（A+B+C），且 stock BIOS 下投币/Start/选人/对战全流程已验证可用。
+> - NeoGeo 输入只走 `field:set_value`（效果仅一帧，需每帧重注）；read-tap 与 set_value 双轨会互相抵消，默认关闭。
+> - `p2XAddr` 已用内存 diff 探针校正为 `0x108422`（本文档的 `0x108502` 实测全程无变化）。
+>
+> 以下内容为历史记录，地址表以 `lua-scripts/rom-configs/kof97.json` 为准。
+
 ## 运行要求
 
 - MAME 0.288（linuxserver/mame 镜像已内置）

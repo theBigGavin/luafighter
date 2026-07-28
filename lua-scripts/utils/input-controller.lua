@@ -121,8 +121,8 @@ local function buildNeoGeoFieldMap(romConfig)
   end
   add("P1", ports.p1)
   add("P2", ports.p2)
-  map["P1_START"] = { portTag = ports.start, fieldName = "1 Player Start", mask = 1 }   -- bit0
-  map["P2_START"] = { portTag = ports.start, fieldName = "2 Players Start", mask = 2 }  -- bit1 (P2 Start在NeoGeo $380000中为bit1)
+  map["P1_START"] = { portTag = ports.start, fieldName = "1 Player Start", mask = 0x0100 }   -- $380000 高字节 bit8
+  map["P2_START"] = { portTag = ports.start, fieldName = "2 Players Start", mask = 0x0400 }  -- $380000 高字节 bit10
   map["P1_COIN"] = { portTag = ports.coin, fieldName = "Coin 1", mask = masks.COIN or 1 }
   map["P2_COIN"] = { portTag = ports.coin, fieldName = "Coin 2", mask = masks.COIN2 or 2 }
   NEOGEO_FIELD_MAP = map
@@ -134,10 +134,12 @@ local NEOGEO_TAP_STATE = {
   p1 = 0xFF,  -- 低电平有效：0xFF 表示所有按钮松开
   p2 = 0xFF,
   system = 0xFFFF,  -- SYSTEM 端口 ($380000) 16-bit，低电平有效
+  coin = 0xFF,  -- AUDIO_COIN 端口 ($320000) 低 8 位，低电平有效
   tapsInstalled = false,
   tapP1 = nil,
   tapP2 = nil,
   tapSystem = nil,
+  tapCoin = nil,
 }
 
 -- 当前输入状态 (公共)
@@ -198,10 +200,13 @@ local function installNeoGeoTaps()
   log:info("installNeoGeoTaps: program space found")
 
   -- 使用 2 字节范围，确保 install_read_tap 接受
+  -- 实测（MAME 0.288 neogeo.cpp in0_edge_joy_r）：$300000 高字节 = P1 按键，低字节 = DSW。
+  -- 必须注入高字节（旧版改低字节，等于只改 DSW，按键从未生效）
   local ok1, tap1 = pcall(space.install_read_tap, space, 0x300000, 0x300001, "luafighter_neogeo_p1",
     function(offset, data, mask)
+      NEOGEO_TAP_STATE.p1Reads = (NEOGEO_TAP_STATE.p1Reads or 0) + 1
       if offset == 0x300000 then
-        return (data & 0xFF00) | NEOGEO_TAP_STATE.p1
+        return (data & 0x00FF) | (NEOGEO_TAP_STATE.p1 << 8)
       end
       return data
     end)
@@ -212,11 +217,12 @@ local function installNeoGeoTaps()
     log:warn(string.format("NeoGeo tap: P1 install failed, ok=%s err=%s", tostring(ok1), tostring(tap1)))
   end
 
-  -- 拦截 P2 输入寄存器 $340000
+  -- 拦截 P2 输入寄存器 $340000（高字节 = P2 按键，低字节 = 0xFF）
   local ok2, tap2 = pcall(space.install_read_tap, space, 0x340000, 0x340001, "luafighter_neogeo_p2",
     function(offset, data, mask)
+      NEOGEO_TAP_STATE.p2Reads = (NEOGEO_TAP_STATE.p2Reads or 0) + 1
       if offset == 0x340000 then
-        return (data & 0xFF00) | NEOGEO_TAP_STATE.p2
+        return (data & 0x00FF) | (NEOGEO_TAP_STATE.p2 << 8)
       end
       return data
     end)
@@ -227,19 +233,23 @@ local function installNeoGeoTaps()
     log:warn(string.format("NeoGeo tap: P2 install failed, ok=%s err=%s", tostring(ok2), tostring(tap2)))
   end
 
-  -- 拦截 SYSTEM 输入寄存器 $380000 (Start 键)
-  -- NeoGeo $380000 位映射: bit0=P1 Start, bit1=P2 Start, bit2=SELECT, bit3+=其他
-  -- 安全：只修改 Start 位（bit0 mask=1, bit1 mask=2），不修改其他位（避免触发Cheat菜单）
+  -- 拦截 SYSTEM 输入寄存器 $380000 (Start/Select 键)
+  -- 实测（neogeo.cpp startsel_edge_joy_r）：Start/Select 在高字节 0x0F00，
+  -- P1 Start=0x0100, P1 Select=0x0200, P2 Start=0x0400, P2 Select=0x0800，低电平有效。
+  -- 注意：BIOS 可能按字节读 $380000（高字节），此时 data 只有 8 位，
+  -- 直接用 16 位掩码会静默失效（0xFF & ~0x0100 = 0xFF，实测确认）。
+  -- 不能依赖 mask 参数区分宽度（不同读取路径的 mask 语义不一致），
+  -- 用 data 自身宽度判别：<=0xFF 即字节值。
   local ok3, tap3 = pcall(space.install_read_tap, space, 0x380000, 0x380001, "luafighter_neogeo_system",
     function(offset, data, mask)
+      NEOGEO_TAP_STATE.sysReads = (NEOGEO_TAP_STATE.sysReads or 0) + 1
       if offset == 0x380000 then
-        -- 只修改 Start 位，保持其他位不变
-        -- NeoGeo $380000: bit0=P1 Start, bit1=P2 Start
-        -- 不修改 bit2+（避免触发Cheat菜单/系统功能）
-        local startMask = 0x03  -- P1 Start (bit0 mask=1) + P2 Start (bit1 mask=2)
-        -- 从 NEOGEO_TAP_STATE.system 中提取 Start 位状态
-        local startPressed = (~NEOGEO_TAP_STATE.system) & startMask
-        -- 清零 Start 位（如果按下），保持其他位不变
+        local startPressed = (~NEOGEO_TAP_STATE.system) & 0x0F00
+        if startPressed == 0 then return data end
+        if data <= 0xFF then
+          -- 字节读（高字节 = Start/Select）：用右移后的掩码清除
+          return data & ~((startPressed >> 8) & 0xFF)
+        end
         return data & ~startPressed
       end
       return data
@@ -251,9 +261,31 @@ local function installNeoGeoTaps()
     log:warn(string.format("NeoGeo tap: SYSTEM install failed, ok=%s err=%s", tostring(ok3), tostring(tap3)))
   end
 
-  if NEOGEO_TAP_STATE.tapP1 and NEOGEO_TAP_STATE.tapP2 and NEOGEO_TAP_STATE.tapSystem then
+  -- 拦截 AUDIO_COIN 输入寄存器 $320000 (Coin 1/2)
+  -- 实测：field:set_value 对 AUDIO_COIN 不生效（CREDIT 始终为 0），必须走 read-tap。
+  -- 位映射：bit0=Coin 1, bit1=Coin 2（另有 Coin 3/4 供支持分离投币的 BIOS 使用）
+  local ok4, tap4 = pcall(space.install_read_tap, space, 0x320000, 0x320001, "luafighter_neogeo_coin",
+    function(offset, data, mask)
+      NEOGEO_TAP_STATE.coinReads = (NEOGEO_TAP_STATE.coinReads or 0) + 1
+      if offset == 0x320000 then
+        -- 字读：coin 在低 8 位
+        return (data & 0xFF00) | NEOGEO_TAP_STATE.coin
+      elseif offset == 0x320001 then
+        -- 奇地址字节读：data 即低 8 位（coin 位）
+        return NEOGEO_TAP_STATE.coin
+      end
+      return data
+    end)
+  if ok4 and tap4 then
+    NEOGEO_TAP_STATE.tapCoin = tap4
+    log:info("NeoGeo tap: COIN installed at $320000")
+  else
+    log:warn(string.format("NeoGeo tap: COIN install failed, ok=%s err=%s", tostring(ok4), tostring(tap4)))
+  end
+
+  if NEOGEO_TAP_STATE.tapP1 and NEOGEO_TAP_STATE.tapP2 and NEOGEO_TAP_STATE.tapSystem and NEOGEO_TAP_STATE.tapCoin then
     NEOGEO_TAP_STATE.tapsInstalled = true
-    log:info("NeoGeo tap: P1/P2/SYSTEM installed successfully")
+    log:info("NeoGeo tap: P1/P2/SYSTEM/COIN installed successfully")
   else
     log:warn("NeoGeo tap: installation incomplete")
   end
@@ -273,10 +305,15 @@ local function removeNeoGeoTaps()
     pcall(NEOGEO_TAP_STATE.tapSystem.remove, NEOGEO_TAP_STATE.tapSystem)
     NEOGEO_TAP_STATE.tapSystem = nil
   end
+  if NEOGEO_TAP_STATE.tapCoin then
+    pcall(NEOGEO_TAP_STATE.tapCoin.remove, NEOGEO_TAP_STATE.tapCoin)
+    NEOGEO_TAP_STATE.tapCoin = nil
+  end
   NEOGEO_TAP_STATE.tapsInstalled = false
   NEOGEO_TAP_STATE.p1 = 0xFF
   NEOGEO_TAP_STATE.p2 = 0xFF
   NEOGEO_TAP_STATE.system = 0xFFFF
+  NEOGEO_TAP_STATE.coin = 0xFF
 end
 
 -- 设置 NeoGeo 按钮状态（通过 read_tap 注入）
@@ -289,6 +326,22 @@ local function setNeoGeoTapState(player, portName, pressed)
     return
   end
   local mask = mapping.mask or 0
+
+  -- COIN 在 AUDIO_COIN 端口 ($320000)，使用独立的 coin 状态字节
+  -- （不能与方向键共用 p1/p2 状态字节，mask 1/2 会与 Up/Down 冲突）
+  if portName:find("_COIN") then
+    local coinState = NEOGEO_TAP_STATE.coin
+    if pressed then
+      coinState = coinState & ~mask
+    else
+      coinState = coinState | mask
+    end
+    NEOGEO_TAP_STATE.coin = coinState
+    log:info(string.format("[LuaFighter] setNeoGeoTapState: %s %s coin state=0x%02X",
+      portName, pressed and "PRESSED" or "RELEASED", coinState))
+    return
+  end
+
   log:info(string.format("[LuaFighter] setNeoGeoTapState: P%d %s %s mask=0x%02X", 
     player, portName, pressed and "PRESSED" or "RELEASED", mask))
 
@@ -361,16 +414,13 @@ local function setPortValue(portName, value, platform)
       log:warn(string.format("setPortValue: no mapping for %s", portName))
       return
     end
-    
-    -- 诊断：打印 mapping 内容
-    log:info(string.format("[LuaFighter] setPortValue: %s mapping={portTag=%s fieldName=%s mask=%d}", 
-      portName, tostring(mapping.portTag), tostring(mapping.fieldName), tonumber(mapping.mask) or 0))
 
-    -- 方案 1：field:set_value（标准 ioport 层注入）
+    -- 方案 1（唯一默认路径）：field:set_value（标准 ioport 层注入）
     -- 对于 active-low 端口，field:set_value(1) 表示激活（低电平/按下）
     -- field:set_value(0) 表示未激活（高电平/释放）
     -- 因此 value=1（按下）-> set_value(1)，value=0（释放）-> set_value(0)
     -- 同时尝试带冒号和不带冒号的端口 tag
+    -- 注意：效果只维持一帧，按住期间需每帧重注（见 updateFrame）
     local port = manager.machine.ioport.ports[mapping.portTag]
     if not port then
       port = manager.machine.ioport.ports[":" .. mapping.portTag]
@@ -389,12 +439,21 @@ local function setPortValue(portName, value, platform)
       log:warn(string.format("[LuaFighter] setPortValue: port not found for %s (portTag=%s)", portName, mapping.portTag))
     end
 
-    -- 方案 2：install_read_tap（直接拦截 CPU 读取，绕过 BIOS 层）
-    -- P1/P2 方向/按钮在 $300000/$340000，Start 在 $380000
-    installNeoGeoTaps()
-    local player = getPlayerFromPortName(portName)
-    if player then
-      setNeoGeoTapState(player, portName, value == 1)
+    -- 方案 2（默认关闭）：install_read_tap。
+    -- 实测结论（2026-07-28，mvtest7/mvtest8 A/B 对比）：
+    -- field:set_value 对 NeoGeo 全部端口（COIN/START/JOY）都有效，
+    -- 但必须从启动早期持续脉冲（见 docs/kof97-findings.md）；
+    -- read-tap 会用自身状态字节覆盖 set_value 的计算结果（两条注入
+    -- 路径互相抵消），且 BIOS 按 mask=0xFF00 读高字节时 START 注入
+    -- 静默失效 —— 装 tap 后连投币都会失败（CREDIT 00）。
+    -- 因此 NeoGeo 默认只走 field:set_value 单轨；如需排查硬件层问题，
+    -- 可用 LUAFIGHTER_TAP=1 重新启用 tap。
+    if os.getenv("LUAFIGHTER_TAP") == "1" then
+      installNeoGeoTaps()
+      local player = getPlayerFromPortName(portName)
+      if player then
+        setNeoGeoTapState(player, portName, value == 1)
+      end
     end
     return
   end
@@ -981,7 +1040,28 @@ function InputController:updateFrame()
     return
   end
 
+  if NEOGEO_TAP_STATE.tapsInstalled then
+    self._tapDiagFrame = (self._tapDiagFrame or 0) + 1
+    if self._tapDiagFrame % 600 == 0 then
+      log:info(string.format("[InputController] NeoGeo tap reads: p1=%d p2=%d sys=%d coin=%d",
+        NEOGEO_TAP_STATE.p1Reads or 0, NEOGEO_TAP_STATE.p2Reads or 0,
+        NEOGEO_TAP_STATE.sysReads or 0, NEOGEO_TAP_STATE.coinReads or 0))
+    end
+  end
+
   -- 非 CPS1（含 Neo Geo）: 标准 field:set_value 路径
+  -- 实测确认：NeoGeo 上 field:set_value 的效果只维持一帧
+  -- （mvtest7 每帧注入可进真实对战；InputController 单次注入 15 帧
+  -- 名义按住实际只有 1 帧，投币都无法识别）。
+  -- 因此按住期间必须每帧重新注入一次。
+  if self._platform == "neogeo" then
+    for portName, info in pairs(activeInputs) do
+      if type(info) == "table" and (info.frames or info.persistent) then
+        setPortValue(portName, 1, "neogeo")
+      end
+    end
+  end
+
   if isExecutingCombo and #comboQueue > 0 then
     comboTimer = comboTimer - 1
     if comboTimer <= 0 then

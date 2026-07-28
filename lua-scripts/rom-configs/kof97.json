@@ -8,7 +8,9 @@
     "phaseConfidence": "medium",
     "calibrationStatus": "stable",
     "knownLimitations": [
-      "内存地址基于逆向工程资料，已验证可用"
+      "p1State/p2State/p1HitState/p2HitState/p1Facing/p2Facing/p1Power/p2Power 地址未校准，AI 可控性判断默认放行（见 docs/kof97-calibration.md）",
+      "stateAddress (0x10A5F4) 在战斗期间可能保持 0，阶段检测以 time+hp 为主",
+      "血量/X 坐标为当前出战角色，3v3 队伍其他成员地址未标定"
     ]
   },
   "stateAddress": "0x10A5F4",
@@ -21,106 +23,54 @@
     "ko": 10,
     "win": 11
   },
-  "p1HealthAddr": "0x10823A",
-  "p2HealthAddr": "0x10843A",
-  "p1XAddr": "0x108180",
-  "p2XAddr": "0x108380",
-  "p1YAddr": "0x108186",
-  "p2YAddr": "0x108386",
-  "p1StateAddr": "0x10815A",
-  "p2StateAddr": "0x10835A",
-  "p1HitStateAddr": "0x10816E",
-  "p2HitStateAddr": "0x10836E",
-  "p1FacingAddr": "0x10810D",
-  "p2FacingAddr": "0x10830D",
-  "timeAddr": "0x10A83E",
-  "p1PowerAddr": "0x10A83E",
-  "p2PowerAddr": "0x10A87E",
+  "p1HealthAddr": "0x108239",
+  "p2HealthAddr": "0x108439",
+  "p1XAddr": "0x108302",
+  "p2XAddr": "0x108422",
+  "timeAddr": "0x10A83A",
+  "maxTime": 96,
   "maxHealth": 103,
-  "attackDistance": 200,
+  "attackDistance": 6000,
   "lockTimeValue": 60,
   "lockPowerValue": 96,
   "lockTime": false,
   "lockPower": false,
   "lockHealth": false,
   "force2P": true,
-  "battleModeAddr1": "0x10A786",
+  "battleModeAddr1": "0x10A84A",
   "battleModeAddr2": "0x10A859",
-  "battleModeValue": 9,
-  "bios": "unibios40",
+  "battleModeValue": 16,
   "controllableStates": [0, 1, 2, 3],
   "addressMeta": {
     "p1HealthAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
+      "source": "cheat0279/kof97.xml (maincpu.pb@108239=67) + docs/kof97-findings.md 实测",
+      "verifiedAt": "2026-06-21",
       "confidence": "verified",
-      "note": "P1 血量 offset 0x139 from base 0x108100"
+      "note": "P1 当前出战角色血量，u8，满血 103"
     },
     "p2HealthAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
+      "source": "cheat0279/kof97.xml (maincpu.pb@108439=67) + docs/kof97-findings.md 实测",
+      "verifiedAt": "2026-06-21",
       "confidence": "verified",
-      "note": "P2 血量 offset 0x139 from base 0x108300"
+      "note": "P2 当前出战角色血量，u8，满血 103"
     },
     "p1XAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
+      "source": "docs/kof97-findings.md 移动扫描实测",
+      "verifiedAt": "2026-06-21",
       "confidence": "verified",
-      "note": "P1 X坐标 offset 0x80 from base 0x108100, Dword"
+      "note": "P1 X 世界坐标，有符号 u16，战斗初始约 24592"
     },
     "p2XAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
+      "source": "mvtest10 内存 diff 探针实测（0x108502 全程无变化，0x108422 持续跟随移动）",
+      "verifiedAt": "2026-07-28",
       "confidence": "verified",
-      "note": "P2 X坐标 offset 0x80 from base 0x108300, Dword"
+      "note": "P2 X 世界坐标，有符号 u16"
     },
-    "p1YAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
+    "timeAddr": {
+      "source": "docs/kof97-findings.md 实测",
+      "verifiedAt": "2026-06-21",
       "confidence": "verified",
-      "note": "P1 Y坐标 offset 0x86 from base 0x108100, Dword"
-    },
-    "p2YAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
-      "confidence": "verified",
-      "note": "P2 Y坐标 offset 0x86 from base 0x108300, Dword"
-    },
-    "p1StateAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
-      "confidence": "verified",
-      "note": "P1 动作编号 offset 0x5A from base 0x108100, Word"
-    },
-    "p2StateAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
-      "confidence": "verified",
-      "note": "P2 动作编号 offset 0x5A from base 0x108300, Word"
-    },
-    "p1HitStateAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
-      "confidence": "verified",
-      "note": "P1 受击状态 offset 0x6E from base 0x108100, Byte"
-    },
-    "p2HitStateAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
-      "confidence": "verified",
-      "note": "P2 受击状态 offset 0x6E from base 0x108300, Byte"
-    },
-    "p1FacingAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
-      "confidence": "verified",
-      "note": "P1 朝向 offset 0x0D from base 0x108100, Byte, 0=朝右, 1=朝左"
-    },
-    "p2FacingAddr": {
-      "source": "逆向工程资料",
-      "verifiedAt": "2026-06-24",
-      "confidence": "verified",
-      "note": "P2 朝向 offset 0x0D from base 0x108300, Byte, 0=朝右, 1=朝左"
+      "note": "对战时间，96 递减；写入会触发 WORK RAM ERROR"
     }
   },
   "teamSize": 3,

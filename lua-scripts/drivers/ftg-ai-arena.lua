@@ -25,7 +25,10 @@ local DEFAULT_CONTROLLABLE_STATES = { 0x00, 0x01, 0x02 }
 
 -- AI 行为循环周期（帧）
 local AI_CYCLE_FRAMES = 60
-local STRATEGY_TTL_FRAMES = 60
+-- 策略有效期兜底：主机制是 Node 端 seq/ack 重发（断链时持续重发），
+-- TTL 仅在 ack 机制整体失效时防止策略永久残留。60 帧(1s) 太短，会导致
+-- 通信抖动时频繁跌回本地兜底 AI、行情驱动名存实亡。
+local STRATEGY_TTL_FRAMES = 600
 
 -- KOF97 攻击按钮池
 local KOF97_ATTACK_BUTTONS = {"BUTTON1", "BUTTON2", "BUTTON3", "BUTTON4"} -- A, B, C, D
@@ -83,32 +86,28 @@ function FtgAiArena:_write(addr, val)
 end
 
 function FtgAiArena:_readHealth(player)
+  -- 血量是字节型字段，必须按 U8 读取（68k 大端下 U16/S16 会读出 hp*256）
   local addr = (player == 1) and self.config.p1HealthAddr or self.config.p2HealthAddr
-  return self:_read(addr, 2) or 0
+  return self:_read(addr, 1) or 0
 end
 
 function FtgAiArena:_readX(player)
+  -- 读取失败返回 nil（fail-fast），由调用方决定降级策略；
+  -- 不再返回 80/240 之类的默认值，避免静默掩盖地址错误。
+  -- KOF97 实测：X 坐标是有符号 u16 世界坐标（docs/kof97-findings.md）
   local addr = (player == 1) and self.config.p1XAddr or self.config.p2XAddr
-  if not addr then return 0 end
-  -- KOF97 X 坐标是 Dword (32-bit)，使用 readU32
-  local ok, val = pcall(self.mem.readU32, self.mem, addr)
-  if ok and val and val ~= 0 then
-    -- 只使用低 16 位（KOF97 坐标范围通常只使用 16 位）
-    if val > 0xFFFF then val = val & 0xFFFF end
-    return val
-  end
-  -- 最终降级：返回默认位置，确保AI能继续运行
-  return (player == 1) and 80 or 240
+  if not addr then return nil end
+  local ok, val = pcall(self.mem.readS16, self.mem, addr)
+  if not ok or val == nil then return nil end
+  return val
 end
 
 function FtgAiArena:_readY(player)
+  -- Y 地址未校准（仅日志使用），按有符号 u16 读取
   local addr = (player == 1) and self.config.p1YAddr or self.config.p2YAddr
   if not addr then return 0 end
-  local ok, val = pcall(self.mem.readU32, self.mem, addr)
-  if ok and val then
-    if val > 0xFFFF then val = val & 0xFFFF end
-    return val
-  end
+  local ok, val = pcall(self.mem.readS16, self.mem, addr)
+  if ok and val then return val end
   return 0
 end
 
@@ -210,7 +209,10 @@ end
 -- ============ 距离与朝向 ============
 
 function FtgAiArena:getDistance()
-  return math.abs(self:_readX(1) - self:_readX(2))
+  -- 任一坐标读取失败返回 nil，调用方据此进入坐标不可靠的降级分支
+  local x1, x2 = self:_readX(1), self:_readX(2)
+  if x1 == nil or x2 == nil then return nil end
+  return math.abs(x1 - x2)
 end
 
 -- true = 面朝右，false = 面朝左
@@ -220,9 +222,10 @@ function FtgAiArena:isFacingRight(player)
   if facing ~= nil then
     return facing == 0  -- 0=朝右, 1=朝左
   end
-  -- 降级：通过X坐标计算
+  -- 降级：通过X坐标计算；坐标不可读时默认朝右
   local myX = self:_readX(player)
   local otherX = self:_readX(player == 1 and 2 or 1)
+  if myX == nil or otherX == nil then return true end
   return myX < otherX
 end
 
@@ -262,6 +265,10 @@ function FtgAiArena:queueSpecial(player, comboName)
   local combos = self.config.combos or {}
   local seq = combos[comboName]
   if not seq or #seq == 0 then return false end
+
+  -- 松开持续方向键：否则按住的方向会与必杀指令输入叠加（如 236A 变成 6>236A），
+  -- 实测方向+攻击同时按游戏只响应方向（docs/kof97-findings.md）
+  self.input:setDirection(player, "neutral")
 
   -- 复制序列，避免修改原配置
   local copy = {}
@@ -362,17 +369,12 @@ end
 function FtgAiArena:_runStrategyPlayer(player, strategy, frameCount)
   if self:isExecutingSpecial(player) then return true end
 
-  local rawDist = self:getDistance()
+  -- 距离统一为像素单位（attackDist 取自 rom-config 的 attackDistance）。
+  -- 坐标不可读时按"已在攻击距离内"降级，避免方向失控。
   local attackDist = self.config.attackDistance or 50
+  local dist = self:getDistance() or attackDist
   local action = strategy.action or "neutral"
   local specialMove = strategy.specialMove
-
-  -- NeoGeo坐标归一化
-  local dist = rawDist
-  if self.gameId == "kof97" then
-    dist = math.floor(rawDist / 64)
-    attackDist = 120
-  end
 
   if specialMove and dist <= attackDist * 2 and (frameCount - (self.lastSpecialFrame[player] or 0)) >= 90 then
     if self:queueSpecial(player, specialMove) then
@@ -385,6 +387,8 @@ function FtgAiArena:_runStrategyPlayer(player, strategy, frameCount)
     if dist > attackDist then
       self:moveToward(player)
     else
+      -- 贴身出招前先松方向（方向+攻击同时按游戏只响应方向）
+      self.input:setDirection(player, "neutral")
       self:attack(player, "BUTTON1")
     end
     return true
@@ -400,6 +404,8 @@ function FtgAiArena:_runStrategyPlayer(player, strategy, frameCount)
   end
 
   if dist <= attackDist and frameCount % 24 == (player - 1) * 12 then
+    -- 贴身出招前先松方向（方向+攻击同时按游戏只响应方向）
+    self.input:setDirection(player, "neutral")
     self:attack(player, "BUTTON1")
     return true
   end
@@ -442,26 +448,14 @@ function FtgAiArena:_runPlayerAi(player, frameCount)
     return
   end
 
-  -- 读取基础状态
+  -- 读取基础状态（距离统一为像素单位；坐标不可读时降级为近战判定）
   local myHp = self:_readHealth(player)
   local enemyHp = self:_readHealth(player == 1 and 2 or 1)
   local hpDiff = myHp - enemyHp
-  local rawDist = self:getDistance()
   local attackDist = self.config.attackDistance or 50
-
-  -- NeoGeo坐标处理
-  local dist = rawDist
-  local xReliable = true
-  if self.gameId == "kof97" then
-    dist = math.floor(rawDist / 64)
-    attackDist = 120
-    local x1 = self:_readX(1)
-    local x2 = self:_readX(2)
-    if x1 == 80 and x2 == 240 then
-      xReliable = false
-      dist = attackDist
-    end
-  end
+  local rawDist = self:getDistance()
+  local xReliable = rawDist ~= nil
+  local dist = rawDist or attackDist
 
   -- ===== Layer 3: 策略层 (每 60 帧) =====
   local isDesperate = false
@@ -543,7 +537,9 @@ function FtgAiArena:_runPlayerAi(player, frameCount)
   end
 
   -- ===== Layer 1: 执行层 (每帧) =====
-  -- 根据战术状态执行具体动作
+  -- 根据战术状态执行具体动作。
+  -- 实测（docs/kof97-findings.md）：方向键和攻击键同时按会互相冲突，
+  -- 移动中按攻击游戏只响应方向。贴身出招前必须先松开方向。
   if tacticalAction == "approach" then
     self:moveToward(player)
   elseif tacticalAction == "retreat" then
@@ -551,10 +547,18 @@ function FtgAiArena:_runPlayerAi(player, frameCount)
   elseif tacticalAction == "defend" then
     self:defend(player)
   elseif tacticalAction == "attack" then
-    self:moveToward(player)
-    self:attack(player, nil)
+    if dist > attackDist then
+      self:moveToward(player)
+    else
+      self.input:setDirection(player, "neutral")
+      self:attack(player, nil)
+    end
   elseif tacticalAction == "combo" then
-    self:moveToward(player)
+    if dist > attackDist then
+      self:moveToward(player)
+    else
+      self.input:setDirection(player, "neutral")
+    end
     self:_trySpecialMove(player, dist, frameCount, isDesperate, xReliable)
   else
     -- 默认：靠近
@@ -563,8 +567,8 @@ function FtgAiArena:_runPlayerAi(player, frameCount)
 
   -- 详细日志：每60帧输出一次
   if self.aiTimer % 60 == 0 then
-    local x1 = self:_readX(1)
-    local x2 = self:_readX(2)
+    local x1 = self:_readX(1) or -1
+    local x2 = self:_readX(2) or -1
     local s1 = self:_readState(1) or -1
     local s2 = self:_readState(2) or -1
     log:info(string.format("[FTG AI] P%d F%d | HP:%d/%d | X:%d/%d | dist=%d | tactic=%s | strat=%s",
@@ -595,7 +599,9 @@ function FtgAiArena:_trySpecialMove(player, dist, frameCount, isDesperate, xReli
   end
 
   -- 根据距离和策略选择连招
+  -- 距离阈值全部用 attackDist 的倍数表达，与坐标量纲（像素/内部单位）无关
   -- 当坐标不可靠时，优先使用近身连招（light_combo, heavy_combo, rapid_punch, crouch_kick）
+  local attackDist = self.config.attackDistance or 50
   local availableCombos = {}
   for _, name in ipairs(comboNames) do
     if name == "super_special" then
@@ -605,27 +611,27 @@ function FtgAiArena:_trySpecialMove(player, dist, frameCount, isDesperate, xReli
       end
     elseif name == "jump_attack" then
       -- 跳跃攻击在中距离时
-      if dist > 50 and dist < 200 then
+      if dist > attackDist and dist < attackDist * 4 then
         table.insert(availableCombos, name)
       end
     elseif name == "power_wave" or name == "rising_tackle" or name == "anti_air" then
       -- 远程技能只在坐标可靠且距离较远时
-      if xReliable and dist > 150 then
+      if xReliable and dist > attackDist * 2.5 then
         table.insert(availableCombos, name)
       end
     elseif name == "dash_punch" or name == "dash_attack" then
       -- 突进技能在中距离时
-      if dist > 60 and dist < 180 then
+      if dist > attackDist and dist < attackDist * 3 then
         table.insert(availableCombos, name)
       end
     elseif name == "throw_attempt" then
       -- 投技在非常近身时
-      if dist < 40 then
+      if dist < attackDist * 0.6 then
         table.insert(availableCombos, name)
       end
     else
       -- 其他连招（light_combo, heavy_combo, crouch_kick, rapid_punch）在近身时使用
-      if dist < 150 then
+      if dist < attackDist * 2 then
         table.insert(availableCombos, name)
       end
     end
@@ -687,16 +693,22 @@ function FtgAiArena:updateFrame(frameCount)
   self:_updateSpecial(1)
   self:_updateSpecial(2)
 
-  -- 3. 检查双方可控性。若任一方受击/倒地，清空常规输入，等待恢复。
+  -- 3. 检查双方可控性。若任一方受击/倒地，跳过本帧 AI 输入。
+  --    注意：不再每帧 releaseAll() —— 地址偏差会让角色被永久清空输入（木桩化），
+  --    仅在"可控 -> 不可控"跳变时松一次键，避免残留按键。
   local p1Ctrl = self:isControllable(1)
   local p2Ctrl = self:isControllable(2)
-  if not p1Ctrl or not p2Ctrl then
-    self.input:releaseAll()
+  if not (p1Ctrl and p2Ctrl) then
+    if self._wasControllable ~= false then
+      self.input:releaseAll()
+      self._wasControllable = false
+    end
     if self.aiTimer % 60 == 0 then
-      debugLog(string.format("[FTG AI] 不可控状态，松键等待 P1Ctrl=%s P2Ctrl=%s", tostring(p1Ctrl), tostring(p2Ctrl)))
+      debugLog(string.format("[FTG AI] 不可控状态，跳过输入 P1Ctrl=%s P2Ctrl=%s", tostring(p1Ctrl), tostring(p2Ctrl)))
     end
     return
   end
+  self._wasControllable = true
 
   -- 4. 运行双方 AI
   self:_runPlayerAi(1, frameCount)
@@ -704,14 +716,15 @@ function FtgAiArena:updateFrame(frameCount)
 
   -- 5. 周期性详细战斗日志（每30帧）
   if self.aiTimer % 30 == 0 then
-    local dist = self:getDistance()
-    local x1, x2 = self:_readX(1), self:_readX(2)
+    local rawDist = self:getDistance()
+    local xReliable = rawDist ~= nil
+    local dist = rawDist or -1
+    local x1, x2 = self:_readX(1) or -1, self:_readX(2) or -1
     local y1, y2 = self:_readY(1), self:_readY(2)
     local hp1, hp2 = self:_readHealth(1), self:_readHealth(2)
     local s1, s2 = self:_readState(1) or -1, self:_readState(2) or -1
     local h1, h2 = self:_readHitState(1) or -1, self:_readHitState(2) or -1
     local f1, f2 = self:_readFacing(1) or -1, self:_readFacing(2) or -1
-    local xReliable = not (self.gameId == "kof97" and x1 == 80 and x2 == 240)
     log:info(string.format("[FTG AI] ===== F%d Summary =====", frameCount or 0))
     log:info(string.format("[FTG AI] HP: P1=%d P2=%d | X: P1=%d P2=%d | Y: P1=%d P2=%d | dist=%d | xReliable=%s",
       hp1, hp2, x1, x2, y1, y2, dist, tostring(xReliable)))

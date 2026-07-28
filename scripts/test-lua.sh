@@ -19,12 +19,11 @@ export LUAFIGHTER_ROM="$ROM"
 export LUAFIGHTER_ROOM="${LUAFIGHTER_ROOM:-room1}"
 export LUAFIGHTER_DRIVER="${LUAFIGHTER_DRIVER:-automation}"
 
-# 检测 ROM 是否需要 Universe BIOS (KOF97)
+# 检测 ROM 是否需要特殊 BIOS
+# 注意：KOF97 曾使用 unibios40，但实测（2026-07-28）发现持续按键脉冲
+# 会在 UniBIOS 启动画面触发其内置作弊菜单（A+B+C），且 stock BIOS
+# 在输入链路修复后可以正常进场，故不再使用 unibios40。
 BIOS_ARG=""
-if [ "$ROM" = "kof97" ]; then
-  BIOS_ARG="-bios unibios40"
-  echo "ℹ️  KOF97 使用 Universe BIOS 以支持 1P vs 2P"
-fi
 
 echo ""
 echo "LuaFighter 启动: ROM=$ROM rompath=$PROJECT_DIR/roms $BIOS_ARG"

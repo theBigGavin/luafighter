@@ -24,18 +24,20 @@ local function clamp(v, min, max)
 end
 
 -- 通用健康值读取
+-- 血量是字节型字段（rom-config 中地址指向单字节），必须按 U8 读取。
+-- 68k 大端下按 U16 读会把血量挪到高 8 位（hp*256），导致 clamp 后恒为满血。
 local function makeHealthReader(config, mem)
   local max = config.maxHealth or 144
   return function()
-    local function readU16(addr)
+    local function readHp(addr)
       if not addr then return 0 end
-      local ok, val = pcall(mem.readU16, mem, addr)
+      local ok, val = pcall(mem.readU8, mem, addr)
       if not ok or val == nil then return 0 end
       val = tonumber(val) or 0
       if val > max then val = max end
       return val
     end
-    return readU16(config.p1HealthAddr), readU16(config.p2HealthAddr)
+    return readHp(config.p1HealthAddr), readHp(config.p2HealthAddr)
   end
 end
 
@@ -99,7 +101,12 @@ function PhaseDetectors.newNeoGeo(config, mem)
       elseif stateVal == (sv.loading or 6) then
         stateFastSwitch = PHASE.LOADING
       elseif stateVal == (sv.attract or 0) or stateVal == (sv.title or 1) then
-        stateFastSwitch = PHASE.ATTRACT
+        -- UniBIOS 下 stateAddress 在战斗期间也保持 0，
+        -- 仅当没有任何战斗迹象（双方无血、无倒计时）时才允许切回 ATTRACT，
+        -- 否则会和 time+hp 的 FIGHT 判定来回抖动（实测确认）
+        if hp1 == 0 and hp2 == 0 and timeVal == 0 then
+          stateFastSwitch = PHASE.ATTRACT
+        end
       end
       
       -- FIGHT 状态的 fastSwitch 需要额外确认：时间>0 或战斗模式匹配
@@ -136,11 +143,12 @@ function PhaseDetectors.newNeoGeo(config, mem)
     end
   end
 
-  -- 5) 吸引/标题/闲置
-  if stateVal == (sv.attract or 0)
+  -- 5) 吸引/标题/闲置：同样要求无战斗迹象，避免战斗期间 state=0 导致抖动
+  if (stateVal == (sv.attract or 0)
       or stateVal == (sv.title or 1)
       or stateVal == 2
-      or stateVal == 3 then
+      or stateVal == 3)
+      and hp1 == 0 and hp2 == 0 and timeVal == 0 then
     return PHASE.ATTRACT, { hp1 = hp1, hp2 = hp2, time = timeVal, state = stateVal }
   end
 

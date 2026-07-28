@@ -51,6 +51,9 @@ luafighter/
 │   └── debug-memory.lua      # 内存地址调试验证脚本
 │
 ├── plugins/                  # MAME 插件目录
+│   ├── boot.lua              # 插件引导脚本（必需！MAME 0.288 通过 pluginspath 下的
+│   │                         #  boot.lua 启动各插件；自定义 -pluginspath 后若缺失，
+│   │                         #  -plugin 指定的插件会被注册但永远不启动，且无报错）
 │   ├── luafighter/           # 主自动化插件入口
 │   │   ├── plugin.json
 │   │   └── init.lua          # 硬编码了项目路径 /Users/gavin/playground/gameplay/luafighter
@@ -164,7 +167,7 @@ npm run dev:media      # 终端 4：媒体推流服务（可选）
 
 - `src/index.ts`：HTTP API + Socket.IO 服务器；创建/停止房间；转发房间事件。
 - `src/mame-pool.ts`：`MamePool` / `MameProcessManager`，启动 MAME 进程并传递环境变量。
-- `src/lua-bridge.ts`：每个房间一个 WebSocket 服务器，10 秒未连接则降级到 `/tmp/luafighter_ipc_*` 文件轮询。
+- `src/lua-bridge.ts`：每个房间一个 WebSocket 服务器，10 秒未连接则降级到 `/tmp/luafighter_ipc_*` 文件轮询（append-only 增量读取）。所有命令带 `seq`，Lua 回 `ack`，500ms 未确认重发（最多 3 次）。
 - `src/decision-engine.ts`：根据多空强度生成 1P/2P 的策略指令。
 - `src/game-room.ts`：`GameRoom` 维护单局生命周期、状态机和事件转发。
 - `src/market-client.ts`：连接 `market-data` 的 WebSocket，断线重连。
@@ -187,7 +190,7 @@ npm run dev:media      # 终端 4：媒体推流服务（可选）
 - `drivers/automation.lua`：主循环，包含 CPS1 投币 tap、状态机、战斗 AI、行情策略接收。
 - `utils/input-controller.lua`：CPS1 使用 `install_read_tap` 在 `0x800000-0x800007`（IN1）和 `0x800018-0x80001F`（IN0/DSW）注入输入。
 - `utils/memory-reader.lua`：封装 `space:read_u8/u16`。
-- `utils/websocket.lua`：通信客户端，依次降级 luasocket → 文件 I/O → stdout。
+- `utils/websocket.lua`：通信客户端，依次降级 luasocket → 文件 I/O（append-only 增量读取）→ stdout；收到带 `seq` 的命令须回 `ack`。
 - `utils/json.lua`：不依赖外部库的 JSON 编解码器。
 - `rom-configs/*.json`：每个 ROM 的内存地址、输入映射、选人配置、连招定义。
 
@@ -285,24 +288,31 @@ docker-compose up --build -d
    - 投币/开始（IN0）在 attract 阶段无法通过 read-tap 注入游戏逻辑，因为游戏 VBLANK 在该阶段不检查 IN0。详见 `docs/cps1-input-limitation.md`。
    - `automation.lua` 中通过 `0x800030` 的 read-tap 尝试模拟投币计数器，但实际能否被游戏识别需要实测验证。
 
-3. **内存地址待验证**：
+3. **内存地址**：
    - `sf2ce.json` 中的 `stateAddress` 为 `null`，`automation.lua` 使用硬编码默认值 `0xFF8ABF`。
-   - `sf2.json` 和 `kof97.json` 中的地址目前为占位值或社区参考值，**必须通过 MAME 调试器实际验证**。
-   - 项目 Stage 9（内存地址实际对战验证）尚未完成。
+   - `kof97.json` 的血量/X 坐标/时间地址已经实测验证（2026-07-28，含内存 diff 探针校正：`p2XAddr=0x108422`，不是旧文档的 `0x108502`）；`sf2.json` 地址仍是占位值。
+   - 读取约定：血量一律 `readU8`（字节型字段，68k 大端下 U16 会读出 hp×256）；KOF97 坐标为有符号 u16 世界坐标（`readS16`）；AI 距离与 rom-config 的 `attackDistance` 同量纲（KOF97 为内部单位，约 250 单位/像素）。详见 `docs/redesign-plan.md`。
 
-4. **ROM 版权**：项目不附带任何 ROM。用户需自行准备合法 ROM 副本放入 `roms/`。
+4. **NeoGeo (KOF97) 输入注入（2026-07-28 实测结论）**：
+   - **只用 `field:set_value` 单轨注入**。read-tap 会用自身状态字节覆盖 set_value 的计算结果，两轨互相抵消（装 tap 后连投币都会失败）。tap 代码保留但默认关闭（`LUAFIGHTER_TAP=1` 启用，仅供诊断）。
+   - `field:set_value` 的效果**只维持一帧**，按住期间必须在 `updateFrame` 中每帧重注。
+   - BIOS 只在标题/attract 的特定窗口接收投币/Start，进场必须用 30 帧周期持续脉冲（见 `entry-kof97.lua` 的 COIN_PRESS），稀疏单发脉冲会错过。
+   - **使用 stock BIOS，不要用 unibios40**：持续按键脉冲会在 UniBIOS 启动画面触发其内置作弊菜单（A+B+C）。
+   - KOF97 KO 判定：血量地址是"当前出战角色"，KO 后队友立即上场读不到 0，以 **FIGHT→KO/WIN 阶段切换**作为回合结束信号，胜者按剩余血量判定。
 
-5. **插件路径硬编码**：`plugins/luafighter/init.lua` 第 10 行硬编码了绝对路径 `/Users/gavin/playground/gameplay/luafighter/lua-scripts`。在其它环境部署前必须修改。
+5. **ROM 版权**：项目不附带任何 ROM。用户需自行准备合法 ROM 副本放入 `roms/`。
 
-6. **前端路由**：Nginx 和 Vite 均配置了 `try_files ... /index.html`，支持 React Router 的浏览器路由。
+6. **插件路径硬编码**：`plugins/luafighter/init.lua` 第 10 行硬编码了绝对路径 `/Users/gavin/playground/gameplay/luafighter/lua-scripts`。在其它环境部署前必须修改。
 
-7. **服务启动顺序**：
+7. **前端路由**：Nginx 和 Vite 均配置了 `try_files ... /index.html`，支持 React Router 的浏览器路由。
+
+8. **服务启动顺序**：
    1. `market-data`（必须先于 match-manager 启动）
    2. `match-manager`
    3. `media-streamer`（创建房间后按需要调用 `/api/streams/:roomId/start`）
    4. `frontend`
 
-8. **日志位置**：
+9. **日志位置**：
    - Lua 脚本默认写入 `/tmp/luafighter-debug.log`。
    - 校准脚本写入 `/tmp/luafighter-calibration.log`。
    - LuaBridge 文件通信使用 `/tmp/luafighter_ipc_<roomId>_{in,out}`。
@@ -342,3 +352,4 @@ docker-compose up --build -d
 - `docs/mame-0.288-compatibility.md`：MAME 0.288 兼容性细节
 - `docs/cps1-input-limitation.md`：CPS1 输入注入限制分析
 - `docs/audit-report.md`：系统自检报告和待办清单
+- `docs/redesign-plan.md`：重设计实施计划（控制链路基线修复 + Phase 1~5 路线图）

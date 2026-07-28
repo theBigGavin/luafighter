@@ -79,8 +79,9 @@ function EntryKof97:_readBattleSignals()
   local stateAddr = self.config.stateAddress
   local battleModeAddr1 = self.config.battleModeAddr1
   local time = timeAddr and self.mem:readU8(timeAddr) or nil
-  local p1Hp = p1HpAddr and self.mem:readU16(p1HpAddr) or nil
-  local p2Hp = p2HpAddr and self.mem:readU16(p2HpAddr) or nil
+  -- 血量是字节型字段，必须按 U8 读（68k 大端下 U16 会读出 hp*256）
+  local p1Hp = p1HpAddr and self.mem:readU8(p1HpAddr) or nil
+  local p2Hp = p2HpAddr and self.mem:readU8(p2HpAddr) or nil
   local stateVal = stateAddr and self.mem:readU8(stateAddr) or nil
   local bm1 = battleModeAddr1 and self.mem:readU8(battleModeAddr1) or nil
   debugLog(string.format("[EntryKof97] battle signals: time=%s p1Hp=%s p2Hp=%s state=%s bm1=%s",
@@ -210,14 +211,16 @@ function EntryKof97:update(frameCount)
   end
 
   if self.state == STATE.BOOT then
-    -- 强制等待 MAME 完成 BIOS 初始化（NeoGeo logo → SNK logo → 标题）
-    -- stateVal 在 BIOS 阶段为 0，不可靠，使用固定等待时间
+    -- 等待 MAME/BIOS 初始化（NeoGeo logo → SNK logo → 标题）
+    -- 实测（docs/kof97-findings.md）：进场按键必须从启动早期开始，
+    -- 错过 title screen 的 START 窗口会长期陷入 attract demo 循环，
+    -- 因此 BOOT 等待不宜过长（原 600 帧实测会错过窗口）
     if self.stateFrame % 60 == 0 then
-      print(string.format("[EntryKof97-BOOT] stateFrame=%d/600", self.stateFrame))
-      debugLog(string.format("[EntryKof97] BOOT progress: %d/600 frames", self.stateFrame))
+      print(string.format("[EntryKof97-BOOT] stateFrame=%d/120", self.stateFrame))
+      debugLog(string.format("[EntryKof97] BOOT progress: %d/120 frames", self.stateFrame))
     end
-    if self.stateFrame >= 600 then  -- 600帧 (~10秒)，让 BIOS 完成初始化
-      self:_setState(STATE.TITLE, "boot done by timeout")
+    if self.stateFrame >= 120 then
+      self:_setState(STATE.TITLE, "boot done")
     end
     return
   end
@@ -226,66 +229,60 @@ function EntryKof97:update(frameCount)
     -- 使用状态字节检测是否已进入选人（备用）
     if stateVal == (sv.select or 4) then
       self:_setState(STATE.BOTH_START_PRESS, "skip to start (already in select)")
-    elseif self.stateFrame >= 120 then  -- 等待 120 帧 (~2秒) 让标题画面完全加载
+    elseif self.stateFrame >= 30 then
+      -- 尽早开始投币脉冲（June 实测：错过标题窗口会长期陷入 attract 循环）
       self:_setState(STATE.COIN_PRESS, "insert coin")
     end
     return
   end
 
   if self.state == STATE.COIN_PRESS then
-    -- KOF97 在 Free Play / VS Mode 下不需要投币，直接跳过
-    self:_setState(STATE.COIN_WAIT, "skip coin for KOF97 VS Mode")
+    -- June 实测（docs/kof97-findings.md + mvtest7 A/B 验证）：
+    -- BIOS 只在标题/attract 的特定窗口接收投币，稀疏单发脉冲会错过；
+    -- 必须 30 帧周期持续脉冲（coin 10帧/start 5帧/A 3帧），直到进入选人。
+    -- NeoGeo 上 field:set_value 效果只维持一帧，靠 updateFrame 每帧重注。
+    local cycle = self.stateFrame % 30
+    if cycle < 10 then
+      self:_press({"COIN"}, 1, 2)
+      self:_press({"COIN"}, 2, 2)
+    elseif cycle < 15 then
+      self:_press({"START"}, 1, 2)
+      self:_press({"START"}, 2, 2)
+    elseif cycle < 18 then
+      self:_press({"BUTTON1"}, 1, 2)
+      self:_press({"BUTTON1"}, 2, 2)
+    end
+
+    -- 进入选人检测：状态字节或时间出现
+    local time = self:_readBattleSignals()
+    if stateVal == (sv.select or 4) or (time and time > 0) then
+      self:_releaseAll()
+      self:_setState(STATE.SELECT_RANDOM, "select detected during coin mash")
+      return
+    end
+    -- 持续脉冲最多 3600 帧（60秒），之后进选人后备流程
+    if self.stateFrame >= 3600 then
+      self:_releaseAll()
+      self:_setState(STATE.SELECT_RANDOM, "coin mash timeout, fallback to select")
+    end
     return
   end
 
   if self.state == STATE.COIN_WAIT then
-    -- 直接按 P1 Start 进入游戏
-    if self.stateFrame >= 1 then
-      self:_setState(STATE.BOTH_START_PRESS, "press P1 start only")
-    end
+    -- 已并入 COIN_PRESS 的持续脉冲，此状态仅作兼容跳转
+    self:_setState(STATE.BOTH_START_PRESS, "press P1+P2 start")
     return
   end
 
   if self.state == STATE.BOTH_START_PRESS then
-    -- KOF97 标题画面：直接写入内存强制进入 VS Mode 选人状态，跳过 attract 阶段
-    -- 同时按 P1+P2 Start 作为辅助
-    print("[EntryKof97-BOTH_START_PRESS] ENTERED stateFrame=" .. tostring(self.stateFrame))
-    debugLog("[EntryKof97] ENTERED BOTH_START_PRESS stateFrame=" .. tostring(self.stateFrame))
-    
-    local stateAddr = self.config.stateAddress
-    if stateAddr then
-      local ok = pcall(self.mem.writeU8, self.mem, stateAddr, 4) -- select = 4
-      if ok then
-        print("[EntryKof97-WRITE-OK] stateAddress=" .. tostring(stateAddr) .. " value=4")
-        debugLog("[EntryKof97] 强制写入 stateAddress=4 (select)")
-      else
-        print("[EntryKof97-WRITE-FAIL] stateAddress=" .. tostring(stateAddr))
-        debugLog("[EntryKof97] 写入 stateAddress 失败")
-      end
-    else
-      print("[EntryKof97-NO-ADDR] stateAddress not configured")
-      debugLog("[EntryKof97] stateAddress 未配置")
-    end
-    local bm1Addr = self.config.battleModeAddr1
-    if bm1Addr then
-      local ok = pcall(self.mem.writeU8, self.mem, bm1Addr, 9) -- VS Mode = 9
-      if ok then
-        print("[EntryKof97-WRITE-OK] battleModeAddr1=" .. tostring(bm1Addr) .. " value=9")
-        debugLog("[EntryKof97] 强制写入 battleModeAddr1=9 (VS Mode)")
-      else
-        print("[EntryKof97-WRITE-FAIL] battleModeAddr1=" .. tostring(bm1Addr))
-        debugLog("[EntryKof97] 写入 battleModeAddr1 失败")
-      end
-    else
-      print("[EntryKof97-NO-ADDR] battleModeAddr1 not configured")
-      debugLog("[EntryKof97] battleModeAddr1 未配置")
-    end
-    
+    -- 投币完成后同时按 P1+P2 Start 进入 1P vs 2P。
+    -- 严禁向 stateAddress/battleModeAddr 强制写值：实测证明游戏不会覆盖
+    -- 这些字节，写入的伪状态会长期残留并污染阶段检测（fail-open）。
     self:_press({"START"}, 1, 30)
     self:_press({"START"}, 2, 30)
     if self.stateFrame >= 30 then
       self:_releaseAll()
-      self:_setState(STATE.BOTH_START_WAIT, "memory forced + P1+P2 Start released")
+      self:_setState(STATE.BOTH_START_WAIT, "P1+P2 Start released")
     end
     return
   end
@@ -311,11 +308,19 @@ function EntryKof97:update(frameCount)
       return
     end
     
-    -- 持续按 P1 Start，直到进入选人或超时（1800帧=30秒）
-    -- KOF97 attract demo 可能持续 30-60 秒，需要耐心等待
+    -- 持续按 P1/P2 Start + A，直到进入选人或超时（1800帧=30秒）
+    -- 实测（docs/kof97-findings.md）：Start 需要配合 A 才能顺利跳过
+    -- 模式/角色选择菜单；P2 Start 在选人前按下才能进入 1P vs 2P；
+    -- KOF97 attract demo 可能持续 30-60 秒，需要耐心
     if self.stateFrame % 10 == 0 then
       self:_press({"START"}, 1, 5)
-      debugLog("[EntryKof97] 持续按 P1 Start 等待 attract demo 结束")
+    end
+    if self.stateFrame % 10 == 2 then
+      self:_press({"START"}, 2, 5)
+    end
+    if self.stateFrame % 10 == 5 then
+      self:_press({"BUTTON1"}, 1, 5)
+      self:_press({"BUTTON1"}, 2, 5)
     end
     
     -- 1800帧后自动进入选人（避免无限等待）

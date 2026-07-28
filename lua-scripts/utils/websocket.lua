@@ -29,6 +29,7 @@ function WebSocket.new(host, port, roomId)
   obj.sendQueue = {}
   obj.mode = COMM_MODE
   obj.fileCounter = 0
+  obj.readOffset = 0  -- 文件模式增量读取偏移（append-only，不截断）
   return obj
 end
 
@@ -140,30 +141,40 @@ function WebSocket:receive()
       end
     end
   elseif self.mode == "file" then
-    -- 从文件读取全部内容，解析所有行，缓存到队列
+    -- append-only 增量读取：记录已读偏移，每轮只读新增内容，
+    -- 不截断文件，避免与 Node 端 appendFileSync 竞争导致丢消息
     local outPath = self.pipePath .. "_out"
     local f = io.open(outPath, "r")
     if f then
-      local content = f:read("*a")
-      f:close()
-      -- 清空文件
-      local trunc = io.open(outPath, "w")
-      if trunc then trunc:close() end
-
-      if content and #content > 0 then
-        for line in content:gmatch("[^\r\n]+") do
-          local trimmed = line:match("^%s*(.-)%s*$") or line
-          if #trimmed > 0 then
-            local ok, msg = pcall(JSON.decode, trimmed)
-            if ok and msg then
-              table.insert(self.receiveQueue, msg)
+      local size = f:seek("end") or 0
+      local offset = self.readOffset or 0
+      if size < offset then
+        -- 文件被外部截断/轮转，从头读
+        offset = 0
+      end
+      if size > offset then
+        f:seek("set", offset)
+        local content = f:read("*a") or ""
+        -- 只解析完整行，未写完的半行留到下一轮
+        local lastNl = content:match("^.*()\n")
+        if lastNl then
+          local complete = content:sub(1, lastNl - 1)
+          self.readOffset = offset + lastNl
+          for line in complete:gmatch("[^\r\n]+") do
+            local trimmed = line:match("^%s*(.-)%s*$") or line
+            if #trimmed > 0 then
+              local ok, msg = pcall(JSON.decode, trimmed)
+              if ok and msg then
+                table.insert(self.receiveQueue, msg)
+              end
             end
           end
         end
       end
-      if #self.receiveQueue > 0 then
-        return table.remove(self.receiveQueue, 1)
-      end
+      f:close()
+    end
+    if #self.receiveQueue > 0 then
+      return table.remove(self.receiveQueue, 1)
     end
   end
   return nil
