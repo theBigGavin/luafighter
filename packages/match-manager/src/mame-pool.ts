@@ -78,9 +78,12 @@ export class MameProcessManager {
         LUAFIGHTER_HOST: 'localhost',
         LUAFIGHTER_PORT: this.config.wsPort.toString(),
         LUAFIGHTER_PATH: path.resolve(this.config.pluginPath, '..'),
-        DISPLAY: this.config.display,
-        PULSE_SINK: process.env.PULSE_SINK || 'luafighter',
-        PULSE_SERVER: process.env.PULSE_SERVER || 'unix:/tmp/pulse/native',
+        // DISPLAY 仅 Linux/Xvfb 需要；macOS 上设置 DISPLAY 会让 SDL 误用 X11
+        ...(process.platform === 'linux' ? {
+          DISPLAY: this.config.display,
+          PULSE_SINK: process.env.PULSE_SINK || 'luafighter',
+          PULSE_SERVER: process.env.PULSE_SERVER || 'unix:/tmp/pulse/native',
+        } : {}),
       },
       cwd: this.config.romsDir,
       detached: false,
@@ -159,10 +162,12 @@ export class MameProcessManager {
       '-plugin', 'luafighter',
       '-resolution', '768x448',
       '-skip_gameinfo',
-      '-cfg_directory', '/app/cfg',
+      // Linux/Docker 用 /app/cfg（容器内路径）；本地（macOS）用项目 cfg 目录
+      '-cfg_directory', process.platform === 'linux' ? '/app/cfg' : path.resolve('./cfg'),
     ];
 
-    if (this.config.soundEnabled) {
+    // PulseAudio 仅 Linux 可用；macOS 本地开发静音
+    if (process.platform === 'linux' && this.config.soundEnabled) {
       args.push('-sound', 'pulse');
     } else {
       args.push('-sound', 'none');

@@ -43,8 +43,8 @@ export class GameRoom extends EventEmitter {
   private p1Wins: number = 0;
   private p2Wins: number = 0;
   private roundCount: number = 1;
-  private maxRounds: number = 3;
-  private winThreshold: number = 2;
+  private maxRounds: number;
+  private winThreshold: number;
 
   constructor(
     config: RoomConfig,
@@ -54,6 +54,9 @@ export class GameRoom extends EventEmitter {
     super();
     this.config = config;
     this.decisionEngine = new DecisionEngine(config.rom);
+    // 获胜阈值与 Lua 侧对齐：KOF97 3v3 为 teamSize(3)，其余默认 2（三局两胜）
+    this.winThreshold = config.teamSize || 2;
+    this.maxRounds = this.winThreshold * 2 - 1;
 
     this.gameState = {
       roomId: config.roomId,
@@ -219,7 +222,7 @@ export class GameRoom extends EventEmitter {
     console.log(`[Room ${this.config.roomId}] 对局结束，最终胜者: P${winner}`);
     this.roundActive = false;
     this.gameState.phase = 'game_end';
-    this.gameState.score = { p1Wins, p2Wins, totalRounds: this.roundCount, bestOf: 3 };
+    this.gameState.score = { p1Wins, p2Wins, totalRounds: this.roundCount, bestOf: this.maxRounds };
     this.emit('gameEnd', { winner, p1Wins, p2Wins });
   }
 

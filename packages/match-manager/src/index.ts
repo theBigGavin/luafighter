@@ -162,6 +162,8 @@ async function createRoomFromConfig(config: RoomConfig): Promise<{ success: bool
   if (config.bios) {
     console.log(`[Manager] ROM ${config.rom} 使用 BIOS: ${config.bios}`);
   }
+  // 队伍人数（KOF97 3v3），与 Lua 侧 teamSize 对齐获胜阈值
+  config.teamSize = romCfg?.teamSize;
 
   // 1. 启动 MAME 实例，获取实际分配的 display 和端口
   const { manager: mameInstance, display } = await mamePool.createInstance(id, config.rom, config.bios);

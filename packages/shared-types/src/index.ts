@@ -188,6 +188,7 @@ export interface RoomConfig {
   streamId: string;       // 推流ID
   metadata?: RomMetadata; // ROM 支持级别元数据（由 match-manager 加载后注入）
   bios?: string;          // 可选：MAME BIOS 名称（如 unibios40）
+  teamSize?: number;      // 可选：每方角色数（KOF97 3v3 = 3），决定获胜所需回合数
 }
 
 export interface RoomStatus {
